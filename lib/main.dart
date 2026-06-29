@@ -1,4 +1,3 @@
-
 //App home page
 
 import 'package:flutter/material.dart';
@@ -9,13 +8,16 @@ import 'state/app_providers.dart';
 import 'state/app_state.dart';
 import 'core/app_initializer.dart';
 
+// ⭐ Import your SQLite provider
+import 'core/database/sqlite_database_provider.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // ✅ Initialize Supabase
   await Supabase.initialize(
     url: 'https://tkzrucdpkfgnbsinugpz.supabase.co',
-    anonKey:
+    publishableKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrenJ1Y2Rwa2ZnbmJzaW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE5MTY2NTksImV4cCI6MjA1NzQ5MjY1OX0.HQGDCN3gD_imgzbi3lM-oy3lcPJHX2hwNO_pb0kr5gU',
   );
 
@@ -66,7 +68,6 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
       theme: ThemeData.dark(),
       home: const HomeScreen(),
     );
-
   }
 }
 
@@ -131,6 +132,7 @@ class HomeScreen extends ConsumerWidget {
 
             const SizedBox(height: 30),
 
+            // ⭐ Test Supabase
             ElevatedButton(
               onPressed: () async {
                 await supabase.from('test_table').insert({
@@ -139,6 +141,27 @@ class HomeScreen extends ConsumerWidget {
                 });
               },
               child: const Text('Test Supabase Write'),
+            ),
+
+            const SizedBox(height: 20),
+
+            // ⭐ Test SQLite DB
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  final db = await ref.read(sqliteDatabaseProvider.future);
+
+                  final rows =
+                      await db.rawQuery('SELECT * FROM inbox_events LIMIT 5');
+
+                  print("SQLite Test Result:");
+                  print(rows);
+                } catch (e) {
+                  print("SQLite ERROR:");
+                  print(e);
+                }
+              },
+              child: const Text('Test SQLite DB'),
             ),
           ],
         ),
