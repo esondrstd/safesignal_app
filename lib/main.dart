@@ -146,11 +146,21 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(height: 20),
 
             // ⭐ Test SQLite DB
+            
             ElevatedButton(
               onPressed: () async {
                 try {
                   final db = await ref.read(sqliteDatabaseProvider.future);
 
+                  // ⭐ Insert a test row
+                  await db.insert('inbox_events', {
+                    'ephemeral_id': 'test123',
+                    'status_code': 200,
+                    'payload': 'hello world',
+                    'created_at': DateTime.now().toIso8601String(),
+                  });
+
+                  // ⭐ Now read the table
                   final rows =
                       await db.rawQuery('SELECT * FROM inbox_events LIMIT 5');
 

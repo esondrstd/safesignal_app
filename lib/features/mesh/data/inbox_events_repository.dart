@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 class InboxEventsRepository {
   final Database db;
 
