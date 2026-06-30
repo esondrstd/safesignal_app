@@ -24,8 +24,10 @@ class InboxEvent {
       statusCode: map['status_code'] as int,
       rssi: map['rssi'] as int,
       detectedAt: DateTime.parse(map['detected_at'] as String),
-      receiverLat: map['receiver_location_lat'] as double?,
-      receiverLng: map['receiver_location_lng'] as double?,
+
+      // ⭐ FIXED — safe parsing for REAL/INTEGER/NULL
+      receiverLat: (map['receiver_location_lat'] as num?)?.toDouble(),
+      receiverLng: (map['receiver_location_lng'] as num?)?.toDouble(),
     );
   }
 
@@ -41,3 +43,4 @@ class InboxEvent {
     };
   }
 }
+

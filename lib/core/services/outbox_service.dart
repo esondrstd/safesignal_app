@@ -72,10 +72,19 @@ class OutboxService {
       await Future.delayed(const Duration(milliseconds: 200));
 
       await _repo.markDelivered(event.id!);
-      print('Delivered outbox_event id=${event.id}');
+
+      print(
+        'Delivered outbox_event id=${event.id} '
+        '(category=${event.emergencyCategory}, type=${event.type})'
+      );
+
     } catch (e) {
       await _repo.markFailed(event.id!, statusCode: 500);
-      print('Failed outbox_event id=${event.id}');
+
+      print(
+        'Failed outbox_event id=${event.id} '
+        '(category=${event.emergencyCategory}, type=${event.type})'
+      );
     }
   }
 
@@ -116,6 +125,8 @@ final outboxServiceProvider = Provider<OutboxService>((ref) {
     orElse: () => throw Exception('OutboxRepository not ready yet'),
   );
 });
+
+
 
 
 

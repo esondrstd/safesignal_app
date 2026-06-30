@@ -15,18 +15,25 @@ class MeshIngestionService {
 
     for (final e in events) {
       final outboxEvent = OutboxEvent(
-        statusCode: 200,
+        statusCode: e.statusCode ?? 0,   // relays inherit severity if present
         createdAt: DateTime.now(),
         status: 'queued',
         retryCount: 0,
         type: 'relay',
-        parentEventId: e.id!,
+        parentEventId: e.id,             // ⭐ FIXED — was e.eid (invalid)
+
+        // Mesh relay payload stored in TEXT "content"
         content: {
           'ephemeralId': e.ephemeralId,
           'rssi': e.rssi,
+          'detectedAt': e.detectedAt.toIso8601String(),
         },
-        lat: e.receiverLat,
-        lng: e.receiverLng,
+
+        emergencyCategory: null,         // relays do not carry emergency category
+
+        lat: e.receiverLat ?? 0.0,       // non-nullable in schema
+        lng: e.receiverLng ?? 0.0,
+
         address: null,
         userId: 'mesh-node',
       );

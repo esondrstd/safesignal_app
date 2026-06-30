@@ -2,21 +2,36 @@ import 'dart:convert';
 
 class OutboxEvent {
   final int? id;
-  final int statusCode;          // status_code
-  final DateTime createdAt;      // created_at
-  final DateTime? lastAttemptAt; // last_attempt_at
-  final String status;           // status (queued/sending/delivered/failed)
-  final int retryCount;          // retry_count
-  final String? type;            // type (emergency, relay, etc.)
-  final int? parentEventId;      // parent_event_id
-  final Map<String, dynamic>? content; // content (JSON)
 
-  // ⭐ FIX: lat/lng must be nullable because BLE detections often have no GPS
-  final double? lat;             
-  final double? lng;             
-  
-  final String? address;         // address
-  final String userId;           // user_id
+  // Emergency severity: 2=Critical, 1=Non-Urgent, 0=Safe
+  final int statusCode;
+
+  final DateTime createdAt;
+  final DateTime? lastAttemptAt;
+
+  // queued, sending, delivered, failed
+  final String status;
+
+  final int retryCount;
+
+  // emergency, relay, status
+  final String? type;
+
+  final int? parentEventId;
+
+  // JSON payload for mesh relay logic (stored in TEXT "content")
+  final Map<String, dynamic>? content;
+
+  // Emergency category (Medical, Fire, Flood, etc.)
+  final String? emergencyCategory;
+
+  // lat/lng are NOT NULL in schema → non-nullable here
+  final double lat;
+  final double lng;
+
+  final String? address;
+
+  final String userId;
 
   OutboxEvent({
     this.id,
@@ -28,8 +43,9 @@ class OutboxEvent {
     this.type,
     this.parentEventId,
     this.content,
-    this.lat,        // ⭐ FIX: now nullable
-    this.lng,        // ⭐ FIX: now nullable
+    this.emergencyCategory,
+    required this.lat,
+    required this.lng,
     this.address,
     required this.userId,
   });
@@ -44,6 +60,7 @@ class OutboxEvent {
     String? type,
     int? parentEventId,
     Map<String, dynamic>? content,
+    String? emergencyCategory,
     double? lat,
     double? lng,
     String? address,
@@ -59,8 +76,9 @@ class OutboxEvent {
       type: type ?? this.type,
       parentEventId: parentEventId ?? this.parentEventId,
       content: content ?? this.content,
-      lat: lat ?? this.lat,      // ⭐ FIX
-      lng: lng ?? this.lng,      // ⭐ FIX
+      emergencyCategory: emergencyCategory ?? this.emergencyCategory,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
       address: address ?? this.address,
       userId: userId ?? this.userId,
     );
@@ -77,10 +95,11 @@ class OutboxEvent {
       'type': type,
       'parent_event_id': parentEventId,
       'content': content != null ? jsonEncode(content) : null,
-      'lat': lat,   // ⭐ FIX: nullable
-      'lng': lng,   // ⭐ FIX: nullable
+      'lat': lat,
+      'lng': lng,
       'address': address,
       'user_id': userId,
+      'emergency_category': emergencyCategory,
     };
   }
 
@@ -96,16 +115,33 @@ class OutboxEvent {
       retryCount: (map['retry_count'] as int?) ?? 0,
       type: map['type'] as String?,
       parentEventId: map['parent_event_id'] as int?,
-      content: map['content'] != null
-          ? jsonDecode(map['content'] as String) as Map<String, dynamic>
-          : null,
 
-      // ⭐ FIX: safely handle NULL values from SQLite
-      lat: map['lat'] == null ? null : (map['lat'] as num).toDouble(),
-      lng: map['lng'] == null ? null : (map['lng'] as num).toDouble(),
+      // ⭐ FIXED: supports both String and Map
+      content: (() {
+        final raw = map['content'];
+        if (raw == null) return null;
 
+        // Already decoded (Map)
+        if (raw is Map<String, dynamic>) return raw;
+
+        // Stored as JSON string
+        if (raw is String) {
+          try {
+            return jsonDecode(raw) as Map<String, dynamic>;
+          } catch (_) {
+            return null;
+          }
+        }
+
+        // Unexpected type
+        return null;
+      })(),
+
+      lat: (map['lat'] as num).toDouble(),
+      lng: (map['lng'] as num).toDouble(),
       address: map['address'] as String?,
       userId: map['user_id'] as String,
+      emergencyCategory: map['emergency_category'] as String?,
     );
   }
 }

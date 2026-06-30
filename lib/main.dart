@@ -15,15 +15,17 @@ import 'package:safesignal/core/database/models/outbox_event.dart';
 import 'package:safesignal/core/services/outbox_service.dart';
 import 'package:safesignal/core/services/ble_scan_service.dart';
 
+// ⭐ NEW: Mesh Graph Screen
+import 'screens/mesh_graph_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // ✅ Initialize Supabase
   await Supabase.initialize(
-    url: 'https://tkzrucdpkfgnbsinugpz.supabase.co',
+    url: 'https://vpcqpfrrcicydpnjmgeb.supabase.co',
     publishableKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrenJ1Y2Rwa2ZnbmJzaW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE5MTY2NTksImV4cCI6MjA1NzQ5MjY1OX0.HQGDCN3gD_imgzbi3lM-oy3lcPJHX2hwNO_pb0kr5gU',
+        'sb_publishable_D2-ROQYpebR4NynUHLKEFg_0nYtrdd0',
   );
 
   runApp(const ProviderScope(child: SafeSignalApp()));
@@ -55,13 +57,10 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
     final outboxRepo = await ref.read(outboxRepositoryProvider.future);
     final outboxService = OutboxService(outboxRepo);
     outboxService.startRetryLoop();
-    print('SafeSignal: Outbox retry loop started');
 
     final inboxRepo = await ref.read(inboxRepositoryProvider.future);
-
     final bleScanService = BleScanService(inboxRepo);
     await bleScanService.startScanning();
-    print('SafeSignal: BLE scanning started');
 
     setState(() {
       _initialized = true;
@@ -135,23 +134,23 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ 2. Print inbox
+              // ⭐ 2. Print BLE inbox events
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
                   final events = await inboxRepo.getRecentInboxEvents(limit: 10);
 
-                  print('Inbox events (latest 10):');
+                  print('BLE Inbox events (latest 10):');
                   for (final e in events) {
                     print('${e.id} ${e.ephemeralId} ${e.rssi} ${e.detectedAt}');
                   }
                 },
-                child: const Text('2. Print Inbox Events'),
+                child: const Text('2. Print BLE Inbox Events'),
               ),
 
               const SizedBox(height: 20),
 
-              // ⭐ 3. Simulate Mesh Relay
+              // ⭐ 3. Simulate Mesh Relay (Inbox → Outbox)
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -166,7 +165,7 @@ class HomeScreen extends ConsumerWidget {
                   final e = inboxEvents.first;
 
                   final outboxEvent = OutboxEvent(
-                    statusCode: 200,
+                    statusCode: e.statusCode ?? 0,
                     createdAt: DateTime.now(),
                     status: 'queued',
                     retryCount: 0,
@@ -177,6 +176,7 @@ class HomeScreen extends ConsumerWidget {
                       'rssi': e.rssi,
                       'detectedAt': e.detectedAt.toIso8601String(),
                     },
+                    emergencyCategory: null,
                     lat: e.receiverLat ?? 29.7604,
                     lng: e.receiverLng ?? -95.3698,
                     address: null,
@@ -191,7 +191,7 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ 4. Test Inbox + Outbox
+              // ⭐ 4. Test SQLite DB + OutboxService
               ElevatedButton(
                 onPressed: () async {
                   try {
@@ -208,18 +208,10 @@ class HomeScreen extends ConsumerWidget {
                       ),
                     );
 
-                    print('Inserted inbox_event id=$inboxId');
-
-                    final inboxEvents = await inboxRepo.getRecentInboxEvents(limit: 5);
-                    print('Recent inbox events:');
-                    for (final e in inboxEvents) {
-                      print('${e.id} ${e.ephemeralId} ${e.statusCode} ${e.rssi} ${e.detectedAt}');
-                    }
-
                     final outboxService = OutboxService(await ref.read(outboxRepositoryProvider.future));
 
                     final outboxEvent = OutboxEvent(
-                      statusCode: 200,
+                      statusCode: 1,
                       createdAt: DateTime.now(),
                       status: 'queued',
                       retryCount: 0,
@@ -229,6 +221,7 @@ class HomeScreen extends ConsumerWidget {
                         'ephemeralId': 'mesh-test-123',
                         'rssi': -60,
                       },
+                      emergencyCategory: null,
                       lat: 29.7604,
                       lng: -95.3698,
                       address: 'Houston, TX',
@@ -239,7 +232,6 @@ class HomeScreen extends ConsumerWidget {
                     print('Queued outbox_event id=$outboxId');
 
                     await outboxService.processPendingEvents();
-                    print('Outbox retry cycle completed');
                   } catch (e) {
                     print('ERROR: $e');
                   }
@@ -262,27 +254,19 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 40),
 
-              // ⭐ A. Run Full Simulation (all steps automatically)
+              // ⭐ Full Simulation
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
                   final outboxRepo = await ref.read(outboxRepositoryProvider.future);
                   final outboxService = OutboxService(outboxRepo);
 
-                  print("=== FULL SIMULATION START ===");
-
-                  // Step 1: Simulate BLE
                   final id = await inboxRepo.simulateBleEvent(rssi: -60);
-                  print("FullSim: Inserted inbox_event id=$id");
-
-                  // Step 2: Print inbox
                   final inboxEvents = await inboxRepo.getRecentInboxEvents(limit: 10);
-                  print("FullSim: Inbox count=${inboxEvents.length}");
-
-                  // Step 3: Relay
                   final e = inboxEvents.first;
+
                   final outboxEvent = OutboxEvent(
-                    statusCode: 200,
+                    statusCode: e.statusCode ?? 0,
                     createdAt: DateTime.now(),
                     status: 'queued',
                     retryCount: 0,
@@ -293,6 +277,7 @@ class HomeScreen extends ConsumerWidget {
                       'rssi': e.rssi,
                       'detectedAt': e.detectedAt.toIso8601String(),
                     },
+                    emergencyCategory: null,
                     lat: 29.7604,
                     lng: -95.3698,
                     address: null,
@@ -300,29 +285,20 @@ class HomeScreen extends ConsumerWidget {
                   );
 
                   final outboxId = await outboxRepo.queueEvent(outboxEvent);
-                  print("FullSim: Queued outbox_event id=$outboxId");
-
-                  // Step 4: Retry engine
                   await outboxService.processPendingEvents();
-                  print("FullSim: Retry engine completed");
-
-                  print("=== FULL SIMULATION END ===");
                 },
                 child: const Text('Run Full Simulation'),
               ),
 
               const SizedBox(height: 20),
 
-              // ⭐ B. Multi-Hop Mesh Simulation
+              // ⭐ Multi-Hop Mesh Simulation
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
                   final outboxRepo = await ref.read(outboxRepositoryProvider.future);
                   final outboxService = OutboxService(outboxRepo);
 
-                  print("=== MULTI-HOP SIMULATION START ===");
-
-                  // Simulate 4 hops
                   for (int hop = 1; hop <= 4; hop++) {
                     final eph = "HOP-$hop-${DateTime.now().millisecondsSinceEpoch}";
                     final inboxId = await inboxRepo.simulateBleEvent(
@@ -330,10 +306,8 @@ class HomeScreen extends ConsumerWidget {
                       rssi: -40 - hop * 5,
                     );
 
-                    print("Hop $hop: Inserted inbox_event id=$inboxId eph=$eph");
-
                     final outboxEvent = OutboxEvent(
-                      statusCode: 200,
+                      statusCode: 0,
                       createdAt: DateTime.now(),
                       status: 'queued',
                       retryCount: 0,
@@ -344,6 +318,7 @@ class HomeScreen extends ConsumerWidget {
                         'hop': hop,
                         'rssi': -40 - hop * 5,
                       },
+                      emergencyCategory: null,
                       lat: 29.7604 + hop * 0.0001,
                       lng: -95.3698 - hop * 0.0001,
                       address: null,
@@ -355,9 +330,21 @@ class HomeScreen extends ConsumerWidget {
                   }
 
                   await outboxService.processPendingEvents();
-                  print("=== MULTI-HOP SIMULATION END ===");
                 },
                 child: const Text('Multi-Hop Mesh Simulation'),
+              ),
+
+              const SizedBox(height: 40),
+
+              // ⭐ NEW: View Mesh Graph
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MeshGraphScreen()),
+                  );
+                },
+                child: const Text("View Mesh Graph"),
               ),
             ],
           ),
@@ -366,5 +353,3 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 }
-
-

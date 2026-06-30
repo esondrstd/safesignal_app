@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
 import 'package:safesignal/core/database/sqlite_database_provider.dart';
+import 'dart:convert';
 
 class OutboxRepository {
   final Database db;
@@ -27,7 +28,21 @@ class OutboxRepository {
       limit: limit,
     );
 
-    return rows.map((row) => OutboxEvent.fromMap(row)).toList();
+    return rows.map((row) {
+      // ⭐ Make a mutable copy — QueryRow is read‑only
+      final mutable = Map<String, Object?>.from(row);
+
+      // ⭐ Decode JSON content safely
+      if (mutable['content'] != null && mutable['content'] is String) {
+        try {
+          mutable['content'] = jsonDecode(mutable['content'] as String);
+        } catch (_) {
+          mutable['content'] = null;
+        }
+      }
+
+      return OutboxEvent.fromMap(mutable);
+    }).toList();
   }
 
   // Mark event as currently being sent
@@ -62,7 +77,7 @@ class OutboxRepository {
       'outbox_events',
       {
         'status': 'failed',
-        'status_code': ?statusCode,
+        if (statusCode != null) 'status_code': statusCode,
         'last_attempt_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -81,7 +96,9 @@ class OutboxRepository {
 
   // Delete old delivered events to keep DB small
   Future<int> deleteOldEvents({int days = 7}) async {
-    final cutoff = DateTime.now().subtract(Duration(days: days)).toIso8601String();
+    final cutoff = DateTime.now()
+        .subtract(Duration(days: days))
+        .toIso8601String();
 
     return await db.delete(
       'outbox_events',
@@ -96,4 +113,3 @@ final outboxRepositoryProvider = FutureProvider<OutboxRepository>((ref) async {
   final db = await ref.watch(sqliteDatabaseProvider.future);
   return OutboxRepository(db);
 });
-

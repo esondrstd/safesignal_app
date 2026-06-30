@@ -25,8 +25,10 @@ class InboxRepository {
       statusCode: 1,
       rssi: rssi,
       detectedAt: DateTime.now(),
-      receiverLat: null,
-      receiverLng: null,
+
+      // ⭐ FIXED — cannot be null because OutboxEvent requires non-null lat/lng
+      receiverLat: 29.7604,
+      receiverLng: -95.3698,
     );
 
     final id = await addInboxEvent(event);
