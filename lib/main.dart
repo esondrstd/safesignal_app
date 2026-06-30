@@ -26,7 +26,6 @@ import 'screens/propagation_timeline_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
   await Supabase.initialize(
     url: 'https://vpcqpfrrcicydpnjmgeb.supabase.co',
     publishableKey: 'sb_publishable_D2-ROQYpebR4NynUHLKEFg_0nYtrdd0',
@@ -35,7 +34,6 @@ Future<void> main() async {
   runApp(const ProviderScope(child: SafeSignalApp()));
 }
 
-// Global Supabase client
 final supabase = Supabase.instance.client;
 
 class SafeSignalApp extends ConsumerStatefulWidget {
@@ -60,17 +58,13 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
 
     final outboxRepo = await ref.read(outboxRepositoryProvider.future);
     final outboxService = OutboxService(outboxRepo);
-
-    // OutboxService retry loop (Supabase sync happens inside)
     outboxService.startRetryLoop();
 
     final inboxRepo = await ref.read(inboxRepositoryProvider.future);
     final bleScanService = BleScanService(inboxRepo);
     await bleScanService.startScanning();
 
-    setState(() {
-      _initialized = true;
-    });
+    setState(() => _initialized = true);
   }
 
   @override
@@ -394,7 +388,15 @@ class HomeScreen extends ConsumerWidget {
                     return;
                   }
 
-                  final chain = await repo.buildHopChain(events.first.parentEventId);
+                  final parentId = events.first.parentEventId;
+                  if (parentId == null) {
+                    print("Event has no parentEventId");
+                    return;
+                  }
+
+                  final chain = await repo.buildHopChain(parentId);
+
+                  if (!context.mounted) return;
 
                   Navigator.push(
                     context,

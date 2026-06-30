@@ -1,4 +1,5 @@
 // lib/screens/mesh_analytics_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:safesignal/core/database/repositories/outbox_repository.dart';
@@ -75,16 +76,23 @@ class _MeshAnalyticsBodyState extends State<_MeshAnalyticsBody> {
     }
 
     final total = events.length;
-    final ephSet = events.map((e) => e.content?['ephemeralId']).toSet();
-    final hops = events.map((e) => e.content?['hop'] ?? 1).toList();
+
+    final ephSet = events
+        .map((e) => e.content?['ephemeralId'])
+        .where((id) => id != null)
+        .toSet();
+
+    final hops = events
+        .map((e) => (e.content?['hop'] ?? 1) as int)
+        .toList();
+
     final maxHop = hops.reduce((a, b) => a > b ? a : b);
     final avgHop = hops.reduce((a, b) => a + b) / hops.length;
+
     final failures = events.where((e) => e.status == 'failed').length;
 
-    // Simple stability heuristic (you can tune this later)
-    final stability = 100
-        - failures * 2
-        + avgHop * 3;
+    // Stability heuristic
+    final stability = 100 - failures * 2 + avgHop * 3;
 
     return _MeshMetrics(
       totalEvents: total,
@@ -92,7 +100,7 @@ class _MeshAnalyticsBodyState extends State<_MeshAnalyticsBody> {
       maxHop: maxHop,
       avgHop: avgHop,
       failures: failures,
-      stabilityScore: stability.clamp(0, 100),
+      stabilityScore: stability.clamp(0, 100).toDouble(),   // ⭐ FIXED HERE
     );
   }
 

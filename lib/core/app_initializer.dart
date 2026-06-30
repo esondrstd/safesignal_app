@@ -1,95 +1,82 @@
+// lib/core/app_initializer.dart
+
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart'; 
+import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
+
 import '../state/app_providers.dart';
-import '../services/storage/secure_storage_service.dart';
-import '../services/storage/install_secret_generator.dart';
-
-import 'package:safesignal/core/services/downstream_sync_service.dart';
-import 'package:safesignal/core/services/realtime_mesh_sync_service.dart';
-import 'package:safesignal/core/database/repositories/outbox_repository.dart';
-
-
-import 'dart:async';
 
 class AppInitializer {
   final WidgetRef ref;
-  final SecureStorageService _secureStorage;
-
-  AppInitializer(this.ref) : _secureStorage = SecureStorageService();
+  AppInitializer(this.ref);
 
   Future<void> initialize() async {
-    final appStateNotifier = ref.read(appStateProvider.notifier);
+    final appState = ref.read(appStateProvider.notifier);
 
     // ------------------------------------------------------------
-    // 1. Load anonymousId (device identity)
+    // 1. Load or generate anonymousId (UUID)
     // ------------------------------------------------------------
-    final anonymousId = await _loadAnonymousId();
-    appStateNotifier.setAnonymousId(anonymousId);
-
-    // ------------------------------------------------------------
-    // 2. Load or generate installSecret
-    // ------------------------------------------------------------
-    var installSecret = await _secureStorage.getInstallSecret();
-    if (installSecret == null || installSecret.isEmpty) {
-      installSecret = InstallSecretGenerator.generate();
-      await _secureStorage.setInstallSecret(installSecret);
+    String anonId = await _loadAnonymousId();
+    if (anonId.isEmpty) {
+      anonId = const Uuid().v4(); // ⭐ REAL anonymous UUID
+      await _saveAnonymousId(anonId);
     }
-    appStateNotifier.setInstallSecret(installSecret);
+    appState.setAnonymousId(anonId);
 
     // ------------------------------------------------------------
-    // 3. Compute appInstanceHash
+    // 2. Load or generate installSecret (random UUID)
     // ------------------------------------------------------------
-    final appInstanceHash = _computeAppInstanceHash(
-      anonymousId: anonymousId,
-      installSecret: installSecret,
-    );
-    appStateNotifier.setAppInstanceHash(appInstanceHash);
+    String installSecret = await _loadInstallSecret();
+    if (installSecret.isEmpty) {
+      installSecret = const Uuid().v4();
+      await _saveInstallSecret(installSecret);
+    }
+    appState.setInstallSecret(installSecret);
 
     // ------------------------------------------------------------
-    // 4. Connectivity flags (placeholder)
+    // 3. Compute appInstanceHash (stable device fingerprint)
     // ------------------------------------------------------------
-    appStateNotifier.setOnline(true);
-    appStateNotifier.setSupabaseConnected(true);
-
-    // ------------------------------------------------------------
-    // 5. DOWNSTREAM SYNC (Supabase → Device)
-    // ------------------------------------------------------------
-    final outboxRepo = await ref.read(outboxRepositoryProvider.future);
-
-    final downstream = DownstreamSyncService(outboxRepo);
-
-    // Run once at startup
-    await downstream.syncFromSupabase(anonymousId);
-
-    // Polling fallback (optional)
-    Timer.periodic(const Duration(seconds: 15), (_) async {
-      await downstream.syncFromSupabase(anonymousId);
-    });
+    final instanceHash = _computeInstanceHash(anonId, installSecret);
+    appState.setAppInstanceHash(instanceHash);
 
     // ------------------------------------------------------------
-    // ⭐ 6. REALTIME SYNC (Supabase Realtime → Device)
+    // 4. App is now fully initialized
     // ------------------------------------------------------------
-    final realtime = RealtimeMeshSyncService(outboxRepo);
-    realtime.start(anonymousId);
-
-    print("AppInitializer: realtime mesh sync started");
   }
 
-  // ------------------------------------------------------------
-  // LOAD DEVICE ANONYMOUS ID
-  // ------------------------------------------------------------
+  // ============================================================
+  // PERSISTENCE HELPERS
+  // ============================================================
+
   Future<String> _loadAnonymousId() async {
-    // TODO: replace with real Supabase Auth anonymous ID if desired
-    return 'anon-placeholder';
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("anonymousId") ?? "";
   }
 
-  // ------------------------------------------------------------
-  // COMPUTE APP INSTANCE HASH
-  // ------------------------------------------------------------
-  String _computeAppInstanceHash({
-    required String anonymousId,
-    required String installSecret,
-  }) {
-    final combined = '$anonymousId::$installSecret';
-    return combined.hashCode.toRadixString(16);
+  Future<void> _saveAnonymousId(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("anonymousId", id);
+  }
+
+  Future<String> _loadInstallSecret() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("installSecret") ?? "";
+  }
+
+  Future<void> _saveInstallSecret(String secret) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("installSecret", secret);
+  }
+
+  // ============================================================
+  // INSTANCE HASH (SHA-256 of anonId + installSecret)
+  // ============================================================
+  String _computeInstanceHash(String anonId, String installSecret) {
+    final bytes = utf8.encode("$anonId::$installSecret");
+    final digest = sha256.convert(bytes);
+    return digest.toString();
   }
 }
+

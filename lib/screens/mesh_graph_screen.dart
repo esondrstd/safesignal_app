@@ -23,7 +23,6 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   Future<void> _load() async {
     final outboxRepo = await ref.read(outboxRepositoryProvider.future);
 
-    // ⭐ Unified cloud + local mesh events
     final outbox = await outboxRepo.getAllRelayEvents(limit: 500);
 
     setState(() {
@@ -105,13 +104,13 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   }
 
   // ------------------------------------------------------------
-  // GROUP BY HOP (CLOUD + LOCAL MERGED)
+  // GROUP BY HOP
   // ------------------------------------------------------------
   Map<int, List<OutboxEvent>> _groupByHop(List<OutboxEvent> events) {
     final map = <int, List<OutboxEvent>>{};
 
     for (final e in events) {
-      final hop = e.content?['hop'] ?? 1;
+      final hop = (e.content?['hop'] ?? 1) as int;
       map.putIfAbsent(hop, () => []);
       map[hop]!.add(e);
     }
@@ -166,7 +165,7 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   // ------------------------------------------------------------
   Widget _buildNodeTile(OutboxEvent e) {
     final eph = e.content?['ephemeralId'] ?? "unknown";
-    final hop = e.content?['hop'] ?? 1;
+    final hop = (e.content?['hop'] ?? 1) as int;
     final rssi = e.content?['rssi'];
 
     return GestureDetector(
@@ -200,11 +199,11 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   }
 
   // ------------------------------------------------------------
-  // DETAILS MODAL (NOW WITH HOP-CHAIN BUTTON)
+  // DETAILS MODAL
   // ------------------------------------------------------------
   void _showDetails(OutboxEvent e) {
     final eph = e.content?['ephemeralId'] ?? "unknown";
-    final hop = e.content?['hop'] ?? 1;
+    final hop = (e.content?['hop'] ?? 1) as int;
     final rssi = e.content?['rssi'];
 
     showDialog(
@@ -241,7 +240,7 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
             child: const Text("View Hop Chain", style: TextStyle(color: Colors.lightBlueAccent)),
             onPressed: () {
               Navigator.pop(context);
-              _showHopChain(e.parentEventId);
+              _safeShowHopChain(e.parentEventId);
             },
           ),
           TextButton(
@@ -254,11 +253,24 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   }
 
   // ------------------------------------------------------------
-  // ⭐ HOP CHAIN VIEWER
+  // SAFE HOP CHAIN WRAPPER
+  // ------------------------------------------------------------
+  void _safeShowHopChain(int? parentEventId) {
+    if (parentEventId == null) {
+      print("No parentEventId — cannot build hop chain.");
+      return;
+    }
+    _showHopChain(parentEventId);
+  }
+
+  // ------------------------------------------------------------
+  // HOP CHAIN VIEWER
   // ------------------------------------------------------------
   Future<void> _showHopChain(int parentEventId) async {
     final repo = await ref.read(outboxRepositoryProvider.future);
     final chain = await repo.buildHopChain(parentEventId);
+
+    if (!mounted) return;
 
     showModalBottomSheet(
       context: context,
@@ -281,7 +293,7 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
                   itemCount: chain.length,
                   itemBuilder: (_, i) {
                     final hopEvent = chain[i];
-                    final hopNum = hopEvent.content?['hop'] ?? 1;
+                    final hopNum = (hopEvent.content?['hop'] ?? 1) as int;
 
                     return Card(
                       color: Colors.blueGrey.shade700,
@@ -318,4 +330,5 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
     return const TextStyle(color: Colors.white70, fontSize: 13);
   }
 }
+
 
