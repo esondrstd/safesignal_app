@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
 import 'package:safesignal/core/database/repositories/outbox_repository.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+final supabase = Supabase.instance.client;
 
 class OutboxService {
   final OutboxRepository _repo;
@@ -12,10 +15,10 @@ class OutboxService {
   OutboxService(this._repo);
 
   // ------------------------------------------------------------
-  // PHASE 2D — START PERIODIC RETRY LOOP
+  // START PERIODIC RETRY LOOP
   // ------------------------------------------------------------
   void startRetryLoop() {
-    _timer?.cancel(); // avoid duplicates
+    _timer?.cancel();
 
     _timer = Timer.periodic(
       const Duration(seconds: 10),
@@ -54,7 +57,7 @@ class OutboxService {
   }
 
   // ------------------------------------------------------------
-  // PROCESS ONE EVENT
+  // PROCESS ONE EVENT (DELIVERY + SUPABASE SYNC)
   // ------------------------------------------------------------
   Future<void> _processSingleEvent(OutboxEvent event) async {
     // Skip if offline
@@ -68,15 +71,24 @@ class OutboxService {
     await _repo.incrementRetryCount(event.id!);
 
     try {
-      // TODO: Replace with real Supabase call
+      // ------------------------------------------------------------
+      // 1. DELIVER EVENT (BLE / HTTP / etc.)
+      // ------------------------------------------------------------
+      // In production, replace this with real delivery logic.
       await Future.delayed(const Duration(milliseconds: 200));
 
+      // Mark delivered locally
       await _repo.markDelivered(event.id!);
 
       print(
         'Delivered outbox_event id=${event.id} '
         '(category=${event.emergencyCategory}, type=${event.type})'
       );
+
+      // ------------------------------------------------------------
+      // 2. SYNC TO SUPABASE
+      // ------------------------------------------------------------
+      await _syncToSupabase(event);
 
     } catch (e) {
       await _repo.markFailed(event.id!, statusCode: 500);
@@ -85,6 +97,32 @@ class OutboxService {
         'Failed outbox_event id=${event.id} '
         '(category=${event.emergencyCategory}, type=${event.type})'
       );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // SUPABASE SYNC
+  // ------------------------------------------------------------
+  Future<void> _syncToSupabase(OutboxEvent e) async {
+    try {
+      final payload = {
+        'user_id': e.userId,
+        'parent_event_id': e.parentEventId,
+        'hop': e.content?['hop'] ?? 1,
+        'ephemeral_id': e.content?['ephemeralId'] ?? 'unknown',
+        'rssi': e.content?['rssi'],
+        'status_code': e.statusCode,
+        'lat': e.lat,
+        'lng': e.lng,
+        'content': e.content ?? {},
+      };
+
+      await supabase.from('mesh_events').insert(payload);
+
+      print('Supabase: synced mesh_event for outbox_event id=${e.id}');
+    } catch (err) {
+      print('Supabase sync error for outbox_event id=${e.id}: $err');
+      // Optional: add sync_failed flag in DB if needed
     }
   }
 
@@ -125,6 +163,7 @@ final outboxServiceProvider = Provider<OutboxService>((ref) {
     orElse: () => throw Exception('OutboxRepository not ready yet'),
   );
 });
+
 
 
 

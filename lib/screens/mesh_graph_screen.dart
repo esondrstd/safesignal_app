@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/database/repositories/inbox_repository.dart';
 import '../core/database/repositories/outbox_repository.dart';
-import '../core/database/models/inbox_event.dart';
 import '../core/database/models/outbox_event.dart';
 
 class MeshGraphScreen extends ConsumerStatefulWidget {
@@ -14,8 +12,7 @@ class MeshGraphScreen extends ConsumerStatefulWidget {
 }
 
 class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
-  List<InboxEvent> inboxEvents = [];
-  List<OutboxEvent> outboxEvents = [];
+  List<OutboxEvent> relayEvents = [];
 
   @override
   void initState() {
@@ -24,145 +21,301 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
   }
 
   Future<void> _load() async {
-    final inboxRepo = await ref.read(inboxRepositoryProvider.future);
     final outboxRepo = await ref.read(outboxRepositoryProvider.future);
 
-    final inbox = await inboxRepo.getRecentInboxEvents(limit: 200);
-    final outbox = await outboxRepo.getPendingEvents(limit: 200);
+    // ⭐ Unified cloud + local mesh events
+    final outbox = await outboxRepo.getAllRelayEvents(limit: 500);
 
     setState(() {
-      inboxEvents = inbox;
-      outboxEvents = outbox;
+      relayEvents = outbox;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final graph = _buildGraph();
+    final graph = _groupByHop(relayEvents);
 
     return Scaffold(
       appBar: AppBar(title: const Text("Mesh Graph")),
-      body: graph.isEmpty
+      body: relayEvents.isEmpty
           ? const Center(child: Text("No mesh events yet"))
-          : InteractiveViewer(
-              boundaryMargin: const EdgeInsets.all(200),
-              minScale: 0.2,
-              maxScale: 3.0,
-              child: CustomPaint(
-                painter: MeshGraphPainter(graph),
-                size: const Size(double.infinity, double.infinity),
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSummary(graph),
+                  const SizedBox(height: 30),
+                  _buildVerticalHopFlow(graph),
+                ],
               ),
             ),
     );
   }
 
-  /// Build a graph structure:
-  /// {
-  ///   "HOP-1-xxxx": { "hop": 1, "rssi": -45, "lat": 29.76, "lng": -95.36 },
-  ///   "HOP-2-xxxx": { "hop": 2, ... },
-  ///   ...
-  /// }
-  Map<String, Map<String, dynamic>> _buildGraph() {
-    final graph = <String, Map<String, dynamic>>{};
+  // ------------------------------------------------------------
+  // SUMMARY SECTION
+  // ------------------------------------------------------------
+  Widget _buildSummary(Map<int, List<OutboxEvent>> graph) {
+    final totalEvents = relayEvents.length;
 
-    for (final o in outboxEvents) {
-      final eph = o.content?['ephemeralId'];
-      final hop = o.content?['hop'] ?? 1;
+    final hops = graph.keys.toList()..sort();
+    final latestHop = hops.isNotEmpty ? hops.last : 0;
 
-      if (eph != null) {
-        graph[eph] = {
-          'hop': hop,
-          'rssi': o.content?['rssi'],
-          'lat': o.lat,
-          'lng': o.lng,
-          'timestamp': o.createdAt,
-        };
-      }
-    }
+    final rssiValues = relayEvents
+        .map((e) => e.content?['rssi'])
+        .whereType<int>()
+        .toList();
 
-    return graph;
-  }
-}
+    final minRssi = rssiValues.isEmpty ? null : rssiValues.reduce((a, b) => a < b ? a : b);
+    final maxRssi = rssiValues.isEmpty ? null : rssiValues.reduce((a, b) => a > b ? a : b);
 
-class MeshGraphPainter extends CustomPainter {
-  final Map<String, Map<String, dynamic>> graph;
-
-  MeshGraphPainter(this.graph);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintNode = Paint()..style = PaintingStyle.fill;
-    final paintEdge = Paint()
-      ..color = Colors.white.withOpacity(0.4)
-      ..strokeWidth = 2;
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade900,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Mesh Summary",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          _summaryLine("Total Relay Events", "$totalEvents"),
+          _summaryLine("Total Hops", "${hops.length}"),
+          _summaryLine("Latest Hop", "$latestHop"),
+          _summaryLine("RSSI Range", minRssi == null ? "N/A" : "$minRssi dBm → $maxRssi dBm"),
+        ],
+      ),
     );
-
-    // Layout: nodes spaced horizontally by hop number
-    const double baseY = 200;
-    const double hopSpacing = 180;
-    const double nodeSpacing = 140;
-
-    final sorted = graph.entries.toList()
-      ..sort((a, b) => (a.value['hop'] as int).compareTo(b.value['hop'] as int));
-
-    final positions = <String, Offset>{};
-
-    int index = 0;
-    for (final entry in sorted) {
-      final eph = entry.key;
-      final hop = entry.value['hop'] as int;
-
-      final x = hop * hopSpacing + 100;
-      final y = baseY + (index * nodeSpacing);
-
-      positions[eph] = Offset(x, y);
-      index++;
-    }
-
-    // Draw edges (hop → hop+1)
-    for (final entry in sorted) {
-      final eph = entry.key;
-      final hop = entry.value['hop'] as int;
-
-      final nextHop = hop + 1;
-
-      // SAFE LOOKUP — no invalid return types
-      final nextCandidates = sorted.where((e) => e.value['hop'] == nextHop);
-      final nextNode = nextCandidates.isNotEmpty ? nextCandidates.first : null;
-
-      if (nextNode != null) {
-        final p1 = positions[eph]!;
-        final p2 = positions[nextNode.key]!;
-
-        canvas.drawLine(p1, p2, paintEdge);
-      }
-    }
-
-    // Draw nodes
-    for (final entry in sorted) {
-      final eph = entry.key;
-      final hop = entry.value['hop'] as int;
-      final rssi = entry.value['rssi'];
-      final pos = positions[eph]!;
-
-      // Color by hop depth
-      paintNode.color = Colors.blueAccent.withOpacity(0.4 + hop * 0.1);
-
-      canvas.drawCircle(pos, 40, paintNode);
-
-      // Label
-      textPainter.text = TextSpan(
-        text: "Hop $hop\n$rssi dBm",
-        style: const TextStyle(color: Colors.white, fontSize: 14),
-      );
-      textPainter.layout();
-      textPainter.paint(canvas, pos - Offset(30, 30));
-    }
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  Widget _summaryLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        "$label: $value",
+        style: const TextStyle(color: Colors.white70, fontSize: 16),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // GROUP BY HOP (CLOUD + LOCAL MERGED)
+  // ------------------------------------------------------------
+  Map<int, List<OutboxEvent>> _groupByHop(List<OutboxEvent> events) {
+    final map = <int, List<OutboxEvent>>{};
+
+    for (final e in events) {
+      final hop = e.content?['hop'] ?? 1;
+      map.putIfAbsent(hop, () => []);
+      map[hop]!.add(e);
+    }
+
+    return map;
+  }
+
+  // ------------------------------------------------------------
+  // VERTICAL HOP FLOW
+  // ------------------------------------------------------------
+  Widget _buildVerticalHopFlow(Map<int, List<OutboxEvent>> graph) {
+    final hops = graph.keys.toList()..sort();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: hops.map((hop) {
+        final events = graph[hop]!;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Hop $hop",
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueAccent,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: events.map((e) {
+                return SizedBox(
+                  width: 180,
+                  child: _buildNodeTile(e),
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 40),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // NODE TILE
+  // ------------------------------------------------------------
+  Widget _buildNodeTile(OutboxEvent e) {
+    final eph = e.content?['ephemeralId'] ?? "unknown";
+    final hop = e.content?['hop'] ?? 1;
+    final rssi = e.content?['rssi'];
+
+    return GestureDetector(
+      onTap: () => _showDetails(e),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.blueGrey.shade700,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              eph,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text("Hop $hop", style: _infoStyle()),
+            Text("$rssi dBm", style: _infoStyle()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // DETAILS MODAL (NOW WITH HOP-CHAIN BUTTON)
+  // ------------------------------------------------------------
+  void _showDetails(OutboxEvent e) {
+    final eph = e.content?['ephemeralId'] ?? "unknown";
+    final hop = e.content?['hop'] ?? 1;
+    final rssi = e.content?['rssi'];
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.blueGrey.shade900,
+        title: Text(
+          eph,
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _detail("Hop", hop),
+              _detail("RSSI", "$rssi dBm"),
+              _detail("Timestamp", e.createdAt.toIso8601String()),
+              _detail("Lat", e.lat),
+              _detail("Lng", e.lng),
+              _detail("StatusCode", e.statusCode),
+              _detail("ParentEventId", e.parentEventId),
+              const SizedBox(height: 12),
+              const Text("Content JSON:", style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 6),
+              Text(
+                e.content?.toString() ?? "{}",
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            child: const Text("View Hop Chain", style: TextStyle(color: Colors.lightBlueAccent)),
+            onPressed: () {
+              Navigator.pop(context);
+              _showHopChain(e.parentEventId);
+            },
+          ),
+          TextButton(
+            child: const Text("Close", style: TextStyle(color: Colors.white)),
+            onPressed: () => Navigator.pop(context),
+          )
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // ⭐ HOP CHAIN VIEWER
+  // ------------------------------------------------------------
+  Future<void> _showHopChain(int parentEventId) async {
+    final repo = await ref.read(outboxRepositoryProvider.future);
+    final chain = await repo.buildHopChain(parentEventId);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.blueGrey.shade900,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Hop Chain (${chain.length} hops)",
+                style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+
+              Expanded(
+                child: ListView.builder(
+                  itemCount: chain.length,
+                  itemBuilder: (_, i) {
+                    final hopEvent = chain[i];
+                    final hopNum = hopEvent.content?['hop'] ?? 1;
+
+                    return Card(
+                      color: Colors.blueGrey.shade700,
+                      child: ListTile(
+                        title: Text("Hop $hopNum", style: const TextStyle(color: Colors.white)),
+                        subtitle: Text(
+                          "Device: ${hopEvent.userId}\n"
+                          "Time: ${hopEvent.createdAt.toIso8601String()}",
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detail(String label, Object? value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        "$label: $value",
+        style: const TextStyle(color: Colors.white70),
+      ),
+    );
+  }
+
+  TextStyle _infoStyle() {
+    return const TextStyle(color: Colors.white70, fontSize: 13);
+  }
 }
+

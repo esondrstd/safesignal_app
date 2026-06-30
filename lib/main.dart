@@ -2,30 +2,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+// App State + Initialization
 import 'state/app_providers.dart';
 import 'core/app_initializer.dart';
 
-// ⭐ SQLite + Repositories + Services
+// SQLite + Repositories + Models
 import 'core/database/repositories/inbox_repository.dart';
 import 'package:safesignal/core/database/models/inbox_event.dart';
 
 import 'core/database/repositories/outbox_repository.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
 
+// Services
 import 'package:safesignal/core/services/outbox_service.dart';
 import 'package:safesignal/core/services/ble_scan_service.dart';
 
-// ⭐ NEW: Mesh Graph Screen
+// Screens
 import 'screens/mesh_graph_screen.dart';
+import 'screens/mesh_analytics_screen.dart';
+import 'screens/mesh_map_screen.dart';
+import 'screens/propagation_timeline_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Initialize Supabase
+  // Initialize Supabase
   await Supabase.initialize(
     url: 'https://vpcqpfrrcicydpnjmgeb.supabase.co',
-    publishableKey:
-        'sb_publishable_D2-ROQYpebR4NynUHLKEFg_0nYtrdd0',
+    publishableKey: 'sb_publishable_D2-ROQYpebR4NynUHLKEFg_0nYtrdd0',
   );
 
   runApp(const ProviderScope(child: SafeSignalApp()));
@@ -56,6 +60,8 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
 
     final outboxRepo = await ref.read(outboxRepositoryProvider.future);
     final outboxService = OutboxService(outboxRepo);
+
+    // OutboxService retry loop (Supabase sync happens inside)
     outboxService.startRetryLoop();
 
     final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -123,7 +129,10 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 40),
 
-              // ⭐ 1. Simulate BLE event
+              // ------------------------------------------------------------
+              // SIMULATION BUTTONS
+              // ------------------------------------------------------------
+
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -134,7 +143,6 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ 2. Print BLE inbox events
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -150,7 +158,6 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ 3. Simulate Mesh Relay (Inbox → Outbox)
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -165,7 +172,7 @@ class HomeScreen extends ConsumerWidget {
                   final e = inboxEvents.first;
 
                   final outboxEvent = OutboxEvent(
-                    statusCode: e.statusCode ?? 0,
+                    statusCode: e.statusCode,
                     createdAt: DateTime.now(),
                     status: 'queued',
                     retryCount: 0,
@@ -175,12 +182,13 @@ class HomeScreen extends ConsumerWidget {
                       'ephemeralId': e.ephemeralId,
                       'rssi': e.rssi,
                       'detectedAt': e.detectedAt.toIso8601String(),
+                      'hop': 1,
                     },
                     emergencyCategory: null,
                     lat: e.receiverLat ?? 29.7604,
                     lng: e.receiverLng ?? -95.3698,
                     address: null,
-                    userId: 'sim-user',
+                    userId: appState.anonymousId,
                   );
 
                   final outboxId = await outboxRepo.queueEvent(outboxEvent);
@@ -191,7 +199,6 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ 4. Test SQLite DB + OutboxService
               ElevatedButton(
                 onPressed: () async {
                   try {
@@ -220,28 +227,29 @@ class HomeScreen extends ConsumerWidget {
                       content: {
                         'ephemeralId': 'mesh-test-123',
                         'rssi': -60,
+                        'hop': 1,
                       },
                       emergencyCategory: null,
                       lat: 29.7604,
                       lng: -95.3698,
                       address: 'Houston, TX',
-                      userId: 'debug-user',
+                      userId: appState.anonymousId,
                     );
 
                     final outboxId = await outboxService.queueEvent(outboxEvent);
                     print('Queued outbox_event id=$outboxId');
 
                     await outboxService.processPendingEvents();
+
                   } catch (e) {
                     print('ERROR: $e');
                   }
                 },
-                child: const Text('4. Test Inbox + Outbox'),
+                child: const Text('4. Test Inbox + Outbox + Supabase Sync'),
               ),
 
               const SizedBox(height: 20),
 
-              // ⭐ 5. Test Supabase Write
               ElevatedButton(
                 onPressed: () async {
                   await supabase.from('test_table').insert({
@@ -254,7 +262,6 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 40),
 
-              // ⭐ Full Simulation
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -266,7 +273,7 @@ class HomeScreen extends ConsumerWidget {
                   final e = inboxEvents.first;
 
                   final outboxEvent = OutboxEvent(
-                    statusCode: e.statusCode ?? 0,
+                    statusCode: e.statusCode,
                     createdAt: DateTime.now(),
                     status: 'queued',
                     retryCount: 0,
@@ -276,15 +283,17 @@ class HomeScreen extends ConsumerWidget {
                       'ephemeralId': e.ephemeralId,
                       'rssi': e.rssi,
                       'detectedAt': e.detectedAt.toIso8601String(),
+                      'hop': 1,
                     },
                     emergencyCategory: null,
-                    lat: 29.7604,
-                    lng: -95.3698,
+                    lat: e.receiverLat ?? 29.7604,
+                    lng: e.receiverLng ?? -95.3698,
                     address: null,
-                    userId: 'fullsim-user',
+                    userId: appState.anonymousId,
                   );
 
                   final outboxId = await outboxRepo.queueEvent(outboxEvent);
+
                   await outboxService.processPendingEvents();
                 },
                 child: const Text('Run Full Simulation'),
@@ -292,7 +301,6 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 20),
 
-              // ⭐ Multi-Hop Mesh Simulation
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
@@ -322,7 +330,7 @@ class HomeScreen extends ConsumerWidget {
                       lat: 29.7604 + hop * 0.0001,
                       lng: -95.3698 - hop * 0.0001,
                       address: null,
-                      userId: 'hop-sim-user',
+                      userId: appState.anonymousId,
                     );
 
                     final outboxId = await outboxRepo.queueEvent(outboxEvent);
@@ -336,7 +344,10 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 40),
 
-              // ⭐ NEW: View Mesh Graph
+              // ------------------------------------------------------------
+              // MESH VISUALIZATION + ANALYTICS
+              // ------------------------------------------------------------
+
               ElevatedButton(
                 onPressed: () {
                   Navigator.push(
@@ -345,6 +356,54 @@ class HomeScreen extends ConsumerWidget {
                   );
                 },
                 child: const Text("View Mesh Graph"),
+              ),
+
+              const SizedBox(height: 20),
+
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MeshAnalyticsScreen()),
+                  );
+                },
+                child: const Text("View Mesh Analytics"),
+              ),
+
+              const SizedBox(height: 20),
+
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MeshMapScreen()),
+                  );
+                },
+                child: const Text("View Mesh Map"),
+              ),
+
+              const SizedBox(height: 20),
+
+              ElevatedButton(
+                onPressed: () async {
+                  final repo = await ref.read(outboxRepositoryProvider.future);
+                  final events = await repo.getAllRelayEvents(limit: 1);
+
+                  if (events.isEmpty) {
+                    print("No events available for timeline.");
+                    return;
+                  }
+
+                  final chain = await repo.buildHopChain(events.first.parentEventId);
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PropagationTimelineScreen(chain: chain),
+                    ),
+                  );
+                },
+                child: const Text("View Propagation Timeline"),
               ),
             ],
           ),

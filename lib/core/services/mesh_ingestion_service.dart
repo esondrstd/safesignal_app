@@ -3,6 +3,7 @@
 import 'package:safesignal/core/database/repositories/inbox_repository.dart';
 import 'package:safesignal/core/services/outbox_service.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
+import 'package:safesignal/core/database/models/inbox_event.dart';
 
 class MeshIngestionService {
   final InboxRepository inboxRepository;
@@ -15,23 +16,25 @@ class MeshIngestionService {
 
     for (final e in events) {
       final outboxEvent = OutboxEvent(
-        statusCode: e.statusCode ?? 0,   // relays inherit severity if present
+        statusCode: e.statusCode,          // 0/1/2 severity
         createdAt: DateTime.now(),
         status: 'queued',
         retryCount: 0,
         type: 'relay',
-        parentEventId: e.id,             // ⭐ FIXED — was e.eid (invalid)
+
+        parentEventId: e.id,               // inbox event ID
 
         // Mesh relay payload stored in TEXT "content"
         content: {
           'ephemeralId': e.ephemeralId,
           'rssi': e.rssi,
           'detectedAt': e.detectedAt.toIso8601String(),
+          'hop': 1,                        // ingestion always creates hop 1
         },
 
-        emergencyCategory: null,         // relays do not carry emergency category
+        emergencyCategory: null,           // relays do not carry category
 
-        lat: e.receiverLat ?? 0.0,       // non-nullable in schema
+        lat: e.receiverLat ?? 0.0,         // non-nullable in schema
         lng: e.receiverLng ?? 0.0,
 
         address: null,

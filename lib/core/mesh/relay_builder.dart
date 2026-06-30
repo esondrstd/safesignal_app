@@ -1,5 +1,5 @@
-import 'package:safesignal/core/database/models/inbox_event.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
+import 'package:safesignal/core/database/models/inbox_event.dart';
 
 class RelayBuilder {
   static OutboxEvent buildRelay({
@@ -8,33 +8,25 @@ class RelayBuilder {
     required int hop,
   }) {
     return OutboxEvent(
-      statusCode: inbox.statusCode ?? 0,   // relays inherit severity if present
+      statusCode: inbox.statusCode,        // 0/1/2 severity
       createdAt: DateTime.now(),
       status: 'queued',
       retryCount: 0,
       type: 'relay',
-      parentEventId: inbox.id,             // ⭐ correct field
 
-      // ⭐ Mesh relay payload stored in TEXT "content"
+      // InboxEvent fields that actually exist
+      parentEventId: inbox.id,
+      lat: inbox.receiverLat ?? 0.0,       // fallback if null
+      lng: inbox.receiverLng ?? 0.0,
+      userId: userId,
+
+      // Relay content payload
       content: {
         'ephemeralId': inbox.ephemeralId,
-        'hop': hop,
         'rssi': inbox.rssi,
         'detectedAt': inbox.detectedAt.toIso8601String(),
+        'hop': hop,
       },
-
-      // ⭐ InboxEvent does NOT have emergencyCategory → relays use null
-      emergencyCategory: null,
-
-      // ⭐ lat/lng are NOT NULL in schema → must be non-null
-      lat: inbox.receiverLat ?? 0.0,
-      lng: inbox.receiverLng ?? 0.0,
-
-      // ⭐ InboxEvent does NOT have address → null
-      address: null,
-
-      userId: userId,
     );
   }
 }
-
