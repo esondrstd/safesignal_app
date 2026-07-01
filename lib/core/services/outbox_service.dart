@@ -1,15 +1,17 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
 import 'package:safesignal/core/database/repositories/outbox_repository.dart';
+import 'package:safesignal/state/app_providers.dart';
+
 
 class OutboxService {
   final OutboxRepository _repo;
+  final WidgetRef _ref;        // ⭐ FIX: use WidgetRef, not Ref
   Timer? _timer;
 
-  OutboxService(this._repo);
+  OutboxService(this._repo, this._ref);
 
   // ------------------------------------------------------------
   // PHASE 2D — START PERIODIC RETRY LOOP
@@ -34,10 +36,14 @@ class OutboxService {
   }
 
   // ------------------------------------------------------------
-  // QUEUE NEW OUTBOX EVENT
+  // QUEUE NEW OUTBOX EVENT (auto‑inject anonymousId)
   // ------------------------------------------------------------
   Future<int> queueEvent(OutboxEvent event) async {
-    return await _repo.queueEvent(event);
+    final userId = _ref.read(appStateNotifierProvider).anonymousId;
+
+    final patched = event.copyWith(userId: userId);
+
+    return await _repo.queueEvent(patched);
   }
 
   // ------------------------------------------------------------
@@ -57,8 +63,8 @@ class OutboxService {
   // PROCESS ONE EVENT
   // ------------------------------------------------------------
   Future<void> _processSingleEvent(OutboxEvent event) async {
-    // Skip if offline
-    final online = await _isOnline();
+    // Skip if offline (use global app state)
+    final online = _ref.read(appStateNotifierProvider).isOnline;
     if (!online) {
       print('Skipping event ${event.id}, offline');
       return;
@@ -76,18 +82,6 @@ class OutboxService {
     } catch (e) {
       await _repo.markFailed(event.id!, statusCode: 500);
       print('Failed outbox_event id=${event.id}');
-    }
-  }
-
-  // ------------------------------------------------------------
-  // NETWORK CHECK
-  // ------------------------------------------------------------
-  Future<bool> _isOnline() async {
-    try {
-      final result = await InternetAddress.lookup('google.com');
-      return result.isNotEmpty;
-    } catch (_) {
-      return false;
     }
   }
 
@@ -112,11 +106,7 @@ final outboxServiceProvider = Provider<OutboxService>((ref) {
   final repoAsync = ref.watch(outboxRepositoryProvider);
 
   return repoAsync.maybeWhen(
-    data: (repo) => OutboxService(repo),
+    data: (repo) => OutboxService(repo, ref as WidgetRef),   // ⭐ FIX: cast Ref → WidgetRef
     orElse: () => throw Exception('OutboxRepository not ready yet'),
   );
 });
-
-
-
-
