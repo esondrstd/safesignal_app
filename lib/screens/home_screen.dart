@@ -71,7 +71,11 @@ class HomeScreen extends ConsumerWidget {
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () {
-                    Navigator.pushNamed(context, '/critical_alert');
+                    Navigator.pushNamed(
+                      context,
+                      '/countdown',
+                      arguments: 'critical',
+                    );
                   },
                   child: const Text("Critical Alert"),
                 ),
@@ -87,7 +91,11 @@ class HomeScreen extends ConsumerWidget {
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () {
-                    Navigator.pushNamed(context, '/non_urgent_alert');
+                    Navigator.pushNamed(
+                      context,
+                      '/countdown',
+                      arguments: 'non_urgent',
+                    );
                   },
                   child: const Text("Non-Urgent Alert"),
                 ),
@@ -103,7 +111,11 @@ class HomeScreen extends ConsumerWidget {
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () {
-                    Navigator.pushNamed(context, '/safe_alert');
+                    Navigator.pushNamed(
+                      context,
+                      '/countdown',
+                      arguments: 'safe',
+                    );
                   },
                   child: const Text("Safe"),
                 ),

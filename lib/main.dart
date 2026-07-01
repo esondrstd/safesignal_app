@@ -19,6 +19,8 @@ import 'screens/home_screen.dart';
 import 'screens/mesh_graph_screen.dart';
 import 'screens/mesh_analytics_screen.dart';
 import 'screens/mesh_map_screen.dart';
+import 'screens/emergency_countdown_screen.dart';
+import 'screens/emergency_details_screen.dart';
 import 'screens/propagation_timeline_screen.dart';
 
 Future<void> main() async {
@@ -82,6 +84,12 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
         switch (settings.name) {
           case '/':
             return MaterialPageRoute(builder: (_) => const HomeScreen());
+
+          case '/countdown':
+            final alertType = settings.arguments as String;
+            return MaterialPageRoute(
+              builder: (_) => EmergencyCountdownScreen(alertType: alertType),
+            );
 
           case '/mesh_graph':
             return MaterialPageRoute(builder: (_) => const MeshGraphScreen());
