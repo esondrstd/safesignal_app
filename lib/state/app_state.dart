@@ -1,3 +1,4 @@
+//safesignal/lib/state/app_state.dart
 //This is the central struct that holds anonymousId, installSecret, and all SafeSignal flags.
 
 class AppState {

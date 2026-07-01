@@ -1,3 +1,4 @@
+//safesignal/lib/state/app_state_notifier.dart
 //This is the “brain” that mutates AppState.  All identity and mode changes go through a single, testable controller.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';

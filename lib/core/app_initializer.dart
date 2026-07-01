@@ -1,53 +1,63 @@
-// lib/core/app_initializer.dart
-
 import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
 import '../state/app_providers.dart';
 
 class AppInitializer {
-  final WidgetRef ref;
+  /// IMPORTANT:
+  /// Use Ref (NOT WidgetRef)
+  final Ref ref;
+
   AppInitializer(this.ref);
 
   Future<void> initialize() async {
-    final appState = ref.read(appStateProvider.notifier);
+    final appStateNotifier = ref.read(appStateProvider.notifier);
 
     // ------------------------------------------------------------
-    // 1. Load or generate anonymousId (UUID)
+    // 1. Load or generate anonymousId
     // ------------------------------------------------------------
     String anonId = await _loadAnonymousId();
+
     if (anonId.isEmpty) {
-      anonId = const Uuid().v4(); // ⭐ REAL anonymous UUID
+      anonId = const Uuid().v4();
       await _saveAnonymousId(anonId);
     }
-    appState.setAnonymousId(anonId);
+
+    appStateNotifier.setAnonymousId(anonId);
 
     // ------------------------------------------------------------
-    // 2. Load or generate installSecret (random UUID)
+    // 2. Load or generate installSecret
     // ------------------------------------------------------------
     String installSecret = await _loadInstallSecret();
+
     if (installSecret.isEmpty) {
       installSecret = const Uuid().v4();
       await _saveInstallSecret(installSecret);
     }
-    appState.setInstallSecret(installSecret);
+
+    appStateNotifier.setInstallSecret(installSecret);
 
     // ------------------------------------------------------------
-    // 3. Compute appInstanceHash (stable device fingerprint)
+    // 3. Compute stable instance hash
     // ------------------------------------------------------------
-    final instanceHash = _computeInstanceHash(anonId, installSecret);
-    appState.setAppInstanceHash(instanceHash);
+    final instanceHash = _computeInstanceHash(
+      anonId,
+      installSecret,
+    );
+
+    appStateNotifier.setAppInstanceHash(instanceHash);
 
     // ------------------------------------------------------------
-    // 4. App is now fully initialized
+    // 4. Initialization complete (no async provider calls here)
     // ------------------------------------------------------------
   }
 
   // ============================================================
-  // PERSISTENCE HELPERS
+  // STORAGE
   // ============================================================
 
   Future<String> _loadAnonymousId() async {
@@ -71,12 +81,11 @@ class AppInitializer {
   }
 
   // ============================================================
-  // INSTANCE HASH (SHA-256 of anonId + installSecret)
+  // HASH
   // ============================================================
+
   String _computeInstanceHash(String anonId, String installSecret) {
     final bytes = utf8.encode("$anonId::$installSecret");
-    final digest = sha256.convert(bytes);
-    return digest.toString();
+    return sha256.convert(bytes).toString();
   }
 }
-

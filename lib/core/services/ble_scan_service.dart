@@ -1,5 +1,3 @@
-// lib/core/services/ble_scan_service.dart
-
 import 'dart:async';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:safesignal/core/database/repositories/inbox_repository.dart';

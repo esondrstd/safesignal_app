@@ -1,8 +1,7 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:safesignal/core/database/models/outbox_event.dart';
-import 'package:safesignal/core/database/sqlite_database_provider.dart';
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
+
+import '../models/outbox_event.dart';
 
 class OutboxRepository {
   final Database db;
@@ -13,15 +12,20 @@ class OutboxRepository {
   // INSERT NEW OUTBOX EVENT
   // ------------------------------------------------------------
   Future<int> queueEvent(OutboxEvent event) async {
+    final map = event.toMap();
+
+    // SQLite autoincrement safety
+    map.remove('id');
+
     return await db.insert(
       'outbox_events',
-      event.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      map,
+      conflictAlgorithm: ConflictAlgorithm.abort,
     );
   }
 
   // ------------------------------------------------------------
-  // FETCH PENDING EVENTS (status = queued)
+  // FETCH PENDING EVENTS
   // ------------------------------------------------------------
   Future<List<OutboxEvent>> getPendingEvents({int limit = 20}) async {
     final rows = await db.query(
@@ -36,7 +40,7 @@ class OutboxRepository {
   }
 
   // ------------------------------------------------------------
-  // ⭐ FETCH ALL RELAY EVENTS (MERGED LOCAL + CLOUD)
+  // FETCH RELAY EVENTS
   // ------------------------------------------------------------
   Future<List<OutboxEvent>> getAllRelayEvents({int limit = 500}) async {
     final rows = await db.query(
@@ -51,7 +55,7 @@ class OutboxRepository {
   }
 
   // ------------------------------------------------------------
-  // ⭐ CHECK IF CLOUD EVENT ALREADY EXISTS LOCALLY
+  // DUPLICATE CHECK
   // ------------------------------------------------------------
   Future<bool> existsByParentEventId(int parentId) async {
     final rows = await db.query(
@@ -60,11 +64,12 @@ class OutboxRepository {
       whereArgs: [parentId],
       limit: 1,
     );
+
     return rows.isNotEmpty;
   }
 
   // ------------------------------------------------------------
-  // ⭐ STEP 7: LOOP PREVENTION — CHECK REBROADCAST HISTORY
+  // REBROADCAST LOOP PROTECTION
   // ------------------------------------------------------------
   Future<bool> hasRebroadcast(String eph, int hop) async {
     final rows = await db.query(
@@ -73,39 +78,34 @@ class OutboxRepository {
       whereArgs: [eph, hop],
       limit: 1,
     );
+
     return rows.isNotEmpty;
   }
 
-  // ------------------------------------------------------------
-  // ⭐ STEP 7: LOOP PREVENTION — RECORD REBROADCAST
-  // ------------------------------------------------------------
   Future<void> recordRebroadcast(String eph, int hop) async {
-    await db.insert(
-      'rebroadcast_history',
-      {
-        'ephemeral_id': eph,
-        'hop': hop,
-        'created_at': DateTime.now().toIso8601String(),
-      },
-    );
+    await db.insert('rebroadcast_history', {
+      'ephemeral_id': eph,
+      'hop': hop,
+      'created_at': DateTime.now().toIso8601String(),
+    });
   }
 
   // ------------------------------------------------------------
-  // ⭐ STEP 8: BUILD FULL HOP CHAIN FOR A GIVEN EVENT
+  // HOP CHAIN
   // ------------------------------------------------------------
   Future<List<OutboxEvent>> buildHopChain(int parentEventId) async {
     final rows = await db.query(
       'outbox_events',
       where: 'parent_event_id = ?',
       whereArgs: [parentEventId],
-      orderBy: 'created_at ASC',   // ensures hop chain order
+      orderBy: 'created_at ASC',
     );
 
     return rows.map(_mapRowToEvent).toList();
   }
 
   // ------------------------------------------------------------
-  // MARK SENDING
+  // STATUS UPDATES
   // ------------------------------------------------------------
   Future<void> markSending(int id) async {
     await db.update(
@@ -119,9 +119,6 @@ class OutboxRepository {
     );
   }
 
-  // ------------------------------------------------------------
-  // MARK DELIVERED
-  // ------------------------------------------------------------
   Future<void> markDelivered(int id) async {
     await db.update(
       'outbox_events',
@@ -134,15 +131,12 @@ class OutboxRepository {
     );
   }
 
-  // ------------------------------------------------------------
-  // MARK FAILED
-  // ------------------------------------------------------------
   Future<void> markFailed(int id, {int? statusCode}) async {
     await db.update(
       'outbox_events',
       {
         'status': 'failed',
-        'status_code': ?statusCode,
+        'status_code': statusCode,
         'last_attempt_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -150,9 +144,6 @@ class OutboxRepository {
     );
   }
 
-  // ------------------------------------------------------------
-  // INCREMENT RETRY COUNT
-  // ------------------------------------------------------------
   Future<void> incrementRetryCount(int id) async {
     await db.rawUpdate('''
       UPDATE outbox_events
@@ -162,14 +153,14 @@ class OutboxRepository {
   }
 
   // ------------------------------------------------------------
-  // DELETE OLD DELIVERED EVENTS
+  // CLEANUP
   // ------------------------------------------------------------
   Future<int> deleteOldEvents({int days = 7}) async {
     final cutoff = DateTime.now()
         .subtract(Duration(days: days))
         .toIso8601String();
 
-    return await db.delete(
+    return db.delete(
       'outbox_events',
       where: 'status = ? AND created_at < ?',
       whereArgs: ['delivered', cutoff],
@@ -177,27 +168,35 @@ class OutboxRepository {
   }
 
   // ------------------------------------------------------------
-  // INTERNAL: MAP ROW → OUTBOX EVENT
+  // SAFE MAPPER (CRITICAL FIX)
   // ------------------------------------------------------------
   OutboxEvent _mapRowToEvent(Map<String, Object?> row) {
-    final mutable = Map<String, Object?>.from(row);
+    final map = Map<String, Object?>.from(row);
 
-    if (mutable['content'] != null && mutable['content'] is String) {
+    // ----------------------------
+    // SAFE JSON CONTENT PARSING
+    // ----------------------------
+    final rawContent = map['content'];
+
+    if (rawContent is String) {
       try {
-        mutable['content'] = jsonDecode(mutable['content'] as String);
+        map['content'] = jsonDecode(rawContent);
       } catch (_) {
-        mutable['content'] = null;
+        map['content'] = null;
       }
     }
 
-    return OutboxEvent.fromMap(mutable);
+    // ----------------------------
+    // SAFE TYPE NORMALIZATION
+    // ----------------------------
+    map['lat'] = (map['lat'] is num)
+        ? (map['lat'] as num).toDouble()
+        : 0.0;
+
+    map['lng'] = (map['lng'] is num)
+        ? (map['lng'] as num).toDouble()
+        : 0.0;
+
+    return OutboxEvent.fromMap(map);
   }
 }
-
-// ------------------------------------------------------------
-// RIVERPOD PROVIDER
-// ------------------------------------------------------------
-final outboxRepositoryProvider = FutureProvider<OutboxRepository>((ref) async {
-  final db = await ref.watch(sqliteDatabaseProvider.future);
-  return OutboxRepository(db);
-});

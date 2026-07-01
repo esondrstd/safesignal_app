@@ -3,30 +3,20 @@ import 'dart:convert';
 class OutboxEvent {
   final int? id;
 
-  // Emergency severity: 2=Critical, 1=Non-Urgent, 0=Safe
   final int statusCode;
-
   final DateTime createdAt;
   final DateTime? lastAttemptAt;
 
-  // queued, sending, delivered, failed
   final String status;
-
   final int retryCount;
 
-  // emergency, relay, status
   final String? type;
-
-  // Hop-chain parent (NOT used for emergency metadata)
   final int? parentEventId;
 
-  // JSON payload for mesh relay logic (stored in TEXT "content")
   final Map<String, dynamic>? content;
 
-  // Emergency category (Medical, Fire, Flood, etc.)
   final String? emergencyCategory;
 
-  // lat/lng are NOT NULL in schema → non-nullable here
   final double lat;
   final double lng;
 
@@ -34,7 +24,7 @@ class OutboxEvent {
 
   final String userId;
 
-  OutboxEvent({
+  const OutboxEvent({
     this.id,
     required this.statusCode,
     required this.createdAt,
@@ -95,7 +85,7 @@ class OutboxEvent {
       'retry_count': retryCount,
       'type': type,
       'parent_event_id': parentEventId,
-      'content': content != null ? jsonEncode(content) : null,
+      'content': content == null ? null : jsonEncode(content),
       'lat': lat,
       'lng': lng,
       'address': address,
@@ -105,60 +95,57 @@ class OutboxEvent {
   }
 
   factory OutboxEvent.fromMap(Map<String, Object?> map) {
-    final e = OutboxEvent(
-      id: map['id'] as int?,
-      statusCode: map['status_code'] as int,
-      createdAt: DateTime.parse(map['created_at'] as String),
+    int? safeInt(Object? v) {
+      if (v == null) return null;
+      if (v is int) return v;
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
+    double safeDouble(Object? v) {
+      if (v == null) return 0.0;
+      if (v is double) return v;
+      if (v is int) return v.toDouble();
+      if (v is String) return double.tryParse(v) ?? 0.0;
+      return 0.0;
+    }
+
+    Map<String, dynamic>? safeContent(Object? raw) {
+      if (raw == null) return null;
+
+      if (raw is Map) {
+        return Map<String, dynamic>.from(raw);
+      }
+
+      if (raw is String) {
+        try {
+          return jsonDecode(raw) as Map<String, dynamic>;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      return null;
+    }
+
+    return OutboxEvent(
+      id: safeInt(map['id']),
+      statusCode: safeInt(map['status_code']) ?? 0,
+      createdAt: DateTime.tryParse(map['created_at']?.toString() ?? '') ??
+          DateTime.now(),
       lastAttemptAt: map['last_attempt_at'] != null
-          ? DateTime.parse(map['last_attempt_at'] as String)
+          ? DateTime.tryParse(map['last_attempt_at'].toString())
           : null,
-      status: map['status'] as String,
-      retryCount: (map['retry_count'] as int?) ?? 0,
-      type: map['type'] as String?,
-      parentEventId: map['parent_event_id'] as int?,
-
-      content: (() {
-        final raw = map['content'];
-        if (raw == null) return null;
-
-        if (raw is Map) {
-          return Map<String, dynamic>.from(raw);
-        }
-
-        if (raw is String) {
-          try {
-            return jsonDecode(raw) as Map<String, dynamic>;
-          } catch (_) {
-            return null;
-          }
-        }
-
-        return null;
-      })(),
-
-      lat: (map['lat'] as num).toDouble(),
-      lng: (map['lng'] as num).toDouble(),
-      address: map['address'] as String?,
-      userId: map['user_id'] as String? ?? '',
-      emergencyCategory: map['emergency_category'] as String?,
+      status: map['status']?.toString() ?? 'queued',
+      retryCount: safeInt(map['retry_count']) ?? 0,
+      type: map['type']?.toString(),
+      parentEventId: safeInt(map['parent_event_id']),
+      content: safeContent(map['content']),
+      lat: safeDouble(map['lat']),
+      lng: safeDouble(map['lng']),
+      address: map['address']?.toString(),
+      userId: map['user_id']?.toString() ?? '',
+      emergencyCategory: map['emergency_category']?.toString(),
     );
-
-    // ⭐ Tripwire: catch nulls at the exact moment they enter the system
-    debugTripwire(e, source: "fromMap");
-
-    return e;
   }
 }
-
-void debugTripwire(OutboxEvent e, {String? source}) {
-  final prefix = source != null ? "[$source]" : "[OutboxEvent]";
-
-  if (e.id == null) print("$prefix id is NULL");
-  if (e.userId.isEmpty) print("$prefix userId is EMPTY");
-  if (e.lat.isNaN) print("$prefix lat is NaN");
-  if (e.lng.isNaN) print("$prefix lng is NaN");
-  if (e.content == null) print("$prefix content is NULL");
-  if (e.content?['hop'] == null) print("$prefix hop is NULL");
-  if (e.content?['ephemeralId'] == null) print("$prefix ephId is NULL");
-}
-

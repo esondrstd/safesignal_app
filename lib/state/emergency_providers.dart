@@ -2,120 +2,150 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/database/repositories/outbox_repository.dart';
+import '../../state/app_providers.dart';
+import 'package:safesignal/core/services/emergency_alert_service.dart';
 
+// ------------------------------------------------------------
+// EMERGENCY ALERT SERVICE PROVIDER
+// ------------------------------------------------------------
+final emergencyAlertServiceProvider =
+    Provider<EmergencyAlertService>((ref) {
+  return EmergencyAlertService(ref);
+});
+
+// ------------------------------------------------------------
+// EMERGENCY STATE
+// ------------------------------------------------------------
 final emergencyStateProvider =
     StateNotifierProvider<EmergencyStateNotifier, EmergencyState>(
   (ref) => EmergencyStateNotifier(ref),
 );
 
 class EmergencyState {
-  final String? alertId;        // Supabase emergency row ID (uuid)
-  final int? parentEventId;     // OutboxEvent.id (offline → cloud mapping)
+  final String? alertId;            // Supabase emergencies.id
+  final int? parentEventId;         // LOCAL sqlite id
+  final String? cloudEventId;       // Supabase mesh_events.id ⭐ FIX
 
   EmergencyState({
     this.alertId,
     this.parentEventId,
+    this.cloudEventId,
   });
 
   EmergencyState copyWith({
     String? alertId,
     int? parentEventId,
+    String? cloudEventId,
   }) {
     return EmergencyState(
       alertId: alertId ?? this.alertId,
       parentEventId: parentEventId ?? this.parentEventId,
+      cloudEventId: cloudEventId ?? this.cloudEventId,
     );
   }
 }
 
+// ------------------------------------------------------------
+// EMERGENCY STATE NOTIFIER
+// ------------------------------------------------------------
 class EmergencyStateNotifier extends StateNotifier<EmergencyState> {
   final Ref ref;
 
   EmergencyStateNotifier(this.ref) : super(EmergencyState());
 
-  // Called by EmergencyAlertService after online send
   void setAlertId(String id) {
     state = state.copyWith(alertId: id);
   }
 
-  // Called by Outbox sync layer when offline event is uploaded to Supabase
   void setParentEventId(int id) {
     state = state.copyWith(parentEventId: id);
   }
 
+  void setCloudEventId(String id) {
+    state = state.copyWith(cloudEventId: id);
+  }
+
   // ------------------------------------------------------------
-  // ADDITIONAL DETAILS (CATEGORY + DESCRIPTION)
+  // SUBMIT DETAILS
   // ------------------------------------------------------------
   Future<void> submitAdditionalDetails({
     required String? category,
     required String? description,
-    required int? parentEventId, // ⭐ NEW
+    required int? parentEventId,
+    required String alertType,
   }) async {
     final supabase = Supabase.instance.client;
 
+    final appState = ref.read(appStateProvider);
+    final userId = appState.anonymousId;
+
     // ------------------------------------------------------------
-    // ONLINE ALERT → update by alertId
+    // ONLINE ALERT (direct Supabase emergency)
     // ------------------------------------------------------------
     if (state.alertId != null && state.alertId!.isNotEmpty) {
       await supabase
           .from("emergencies")
           .update({
+            "user_id": userId,
+            "alert_type": alertType,
             "emergency_category": category,
             if (description != null && description.isNotEmpty)
               "emergency_description": description,
           })
-          .eq("id", state.alertId!);
+          .eq("id", state.alertId!)
+          .select();
 
-      // Update local state
-      state = state.copyWith(
-        parentEventId: parentEventId,
-      );
-
+      state = state.copyWith(parentEventId: parentEventId);
       return;
     }
 
     // ------------------------------------------------------------
-    // OFFLINE ALERT → update by parent_event_id
+    // OFFLINE ALERT (mesh-based)
     // ------------------------------------------------------------
-    if (parentEventId != null) {
-      await supabase
+
+    final cloudId = state.cloudEventId;
+
+    if (cloudId != null && cloudId.isNotEmpty) {
+      // ⭐ FIX: use CLOUD mesh_event.id, NOT local parentEventId
+
+      final updateResponse = await supabase
           .from("emergencies")
           .update({
+            "user_id": userId,
+            "alert_type": alertType,
             "emergency_category": category,
             if (description != null && description.isNotEmpty)
               "emergency_description": description,
           })
-          .eq("parent_event_id", parentEventId);
+          .eq("parent_event_id", int.parse(cloudId)) // ⭐ FIX HERE
+          .select();
 
-      // Update OutboxEvent locally
+      final bool noRowsUpdated = updateResponse.isEmpty;
+
+      if (noRowsUpdated) {
+        await supabase.from("emergencies").insert({
+          "parent_event_id": int.parse(cloudId), // ⭐ FIX HERE
+          "user_id": userId,
+          "alert_type": alertType,
+          "emergency_category": category,
+          if (description != null && description.isNotEmpty)
+            "emergency_description": description,
+        });
+      }
+
+      // update local outbox metadata
       if (category != null) {
         final repo = await ref.read(outboxRepositoryProvider.future);
-
-        // Fetch the hop chain starting at parentEventId
-        final events = await repo.buildHopChain(parentEventId);
+        final events = await repo.buildHopChain(parentEventId ?? 0);
 
         if (events.isNotEmpty) {
-          final event = events.first;
-
-          final updated = event.copyWith(
-            emergencyCategory: category,
-          );
-
-          await repo.queueEvent(updated); // reinsert updated event
+          final event = events.last;
+          final updated = event.copyWith(emergencyCategory: category);
+          await repo.queueEvent(updated);
         }
       }
 
-      // Update local state
-      state = state.copyWith(
-        parentEventId: parentEventId,
-      );
-
-      return;
+      state = state.copyWith(parentEventId: parentEventId);
     }
-
-    // ------------------------------------------------------------
-    // Edge case: no alertId and no parentEventId
-    // ------------------------------------------------------------
-    // Nothing to attach yet — ignore silently.
   }
 }

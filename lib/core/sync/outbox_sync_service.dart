@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../database/models/outbox_event.dart';
-import '../database/repositories/outbox_repository.dart';
+import '../../state/app_providers.dart';
 import '../../state/emergency_providers.dart';
 import '../supabase/emergency_api.dart';
 
@@ -24,9 +24,9 @@ class OutboxSyncService {
 
     for (final event in pending) {
       try {
-        // ⭐ FIX: Prevent null id crash
+        // prevent crash
         if (event.id == null) {
-          print("OutboxSyncService: event has null id, skipping");
+          print("OutboxSyncService: null id skipped");
           continue;
         }
 
@@ -34,7 +34,6 @@ class OutboxSyncService {
         await repo.markDelivered(event.id!);
 
       } catch (e) {
-        // ⭐ FIX: Prevent null id crash
         if (event.id != null) {
           await repo.incrementRetryCount(event.id!);
         }
@@ -44,29 +43,25 @@ class OutboxSyncService {
   }
 
   // ------------------------------------------------------------
-  // SYNC ONE EVENT → mesh_events → emergencies (if needed)
+  // SYNC ONE EVENT
   // ------------------------------------------------------------
   Future<void> _syncSingleEvent(OutboxEvent event) async {
-    // 1. Upload to mesh_events
     final meshEventId = await _uploadMeshEvent(event);
 
-    // 2. If emergency → create emergency row
     if (event.type == "emergency") {
       await _uploadEmergencyRow(event, meshEventId);
 
-      // Store parentEventId for EmergencyDetailsScreen
-      ref
-          .read(emergencyStateProvider.notifier)
+      ref.read(emergencyStateProvider.notifier)
           .setParentEventId(meshEventId);
     }
   }
 
   // ------------------------------------------------------------
-  // UPLOAD OUTBOX EVENT → mesh_events
+  // UPLOAD → mesh_events
   // ------------------------------------------------------------
   Future<int> _uploadMeshEvent(OutboxEvent event) async {
-    // ⭐ FIX: Prevent null/empty userId crash
-    final safeUserId = event.userId.isNotEmpty ? event.userId : "unknown";
+    final safeUserId =
+        event.userId.isNotEmpty ? event.userId : "unknown";
 
     final response = await supabase
         .from("mesh_events")
@@ -77,7 +72,7 @@ class OutboxSyncService {
           "status_code": event.statusCode,
           "lat": event.lat,
           "lng": event.lng,
-          "content": event.content ?? {},   // ⭐ FIX: safe fallback
+          "content": event.content ?? {},
         })
         .select("id")
         .single();
@@ -86,10 +81,12 @@ class OutboxSyncService {
   }
 
   // ------------------------------------------------------------
-  // CREATE EMERGENCY ROW (OFFLINE PATH)
+  // EMERGENCY ROW SYNC
   // ------------------------------------------------------------
   Future<void> _uploadEmergencyRow(
-      OutboxEvent event, int meshEventId) async {
+    OutboxEvent event,
+    int meshEventId,
+  ) async {
     await EmergencyApi.createAlertFromOutboxEvent(
       alertType: event.content?["alert_type"] ?? "unknown",
       userId: event.userId,

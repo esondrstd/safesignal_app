@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../state/emergency_providers.dart';
+import '../state/emergency_providers.dart';
+
 import '../../core/services/emergency_alert_service.dart';
 import 'emergency_details_screen.dart';
 
@@ -46,8 +47,9 @@ class _EmergencyCountdownScreenState
 
     // Read updated emergency state
     final emergencyState = ref.read(emergencyStateProvider);
-
     final parentEventId = emergencyState.parentEventId;
+
+    print("COUNTDOWN SCREEN → parentEventId = $parentEventId");
 
     if (!mounted) return;
 
@@ -55,7 +57,8 @@ class _EmergencyCountdownScreenState
       context,
       MaterialPageRoute(
         builder: (_) => EmergencyDetailsScreen(
-          parentEventId: parentEventId, // ⭐ REQUIRED
+          parentEventId: parentEventId,
+          alertType: widget.alertType,   // ⭐ REQUIRED — THIS FIXES YOUR ERROR
         ),
       ),
     );

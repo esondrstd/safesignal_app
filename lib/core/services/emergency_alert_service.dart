@@ -1,18 +1,17 @@
-// lib/core/emergency/emergency_alert_service.dart
+// lib/core/services/emergency_alert_service.dart
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../database/repositories/outbox_repository.dart';
 import '../../state/app_providers.dart';
 import '../../state/emergency_providers.dart';
-import 'package:safesignal/core/database/models/outbox_event.dart';
 
-final emergencyAlertServiceProvider =
-    Provider<EmergencyAlertService>((ref) => EmergencyAlertService(ref));
+import '../database/models/outbox_event.dart';
+import '../database/repositories/outbox_repository.dart';
 
 class EmergencyAlertService {
   final Ref ref;
+
   EmergencyAlertService(this.ref);
 
   // ------------------------------------------------------------
@@ -34,7 +33,12 @@ class EmergencyAlertService {
   Future<bool> _checkOnline() async {
     try {
       final supabase = Supabase.instance.client;
-      await supabase.from('health').select('*').limit(1);
+
+      await supabase
+          .from('health')
+          .select('id')
+          .limit(1);
+
       return true;
     } catch (_) {
       return false;
@@ -42,7 +46,7 @@ class EmergencyAlertService {
   }
 
   // ------------------------------------------------------------
-  // SEND ALERT TO SUPABASE (ONLINE)
+  // ONLINE ALERT (ROOT EMERGENCY)
   // ------------------------------------------------------------
   Future<void> _sendToSupabase(String type) async {
     final supabase = Supabase.instance.client;
@@ -58,18 +62,24 @@ class EmergencyAlertService {
         .select("id")
         .single();
 
-    final alertId = response["id"] as String;
+    // FIX: force int safety
+    final dynamic rawId = response["id"];
+    final int alertId = rawId is int ? rawId : int.parse(rawId.toString());
+
     ref.read(emergencyStateProvider.notifier).setAlertId(alertId);
+
+    print("Emergency root alert created id=$alertId");
   }
 
   // ------------------------------------------------------------
-  // SEND ALERT VIA MESH RELAY (OFFLINE)
+  // OFFLINE ALERT (MESH RELAY)
   // ------------------------------------------------------------
   Future<void> _sendViaMeshRelay(String type) async {
-    final repo = await ref.read(outboxRepositoryProvider.future);
+    final repoAsync = ref.read(outboxRepositoryProvider.future);
+    final OutboxRepository repo = await repoAsync;
+
     final appState = ref.read(appStateProvider);
 
-    // Map alert type → severity code
     final int severity = switch (type) {
       "critical" => 2,
       "non_urgent" => 1,
@@ -78,32 +88,25 @@ class EmergencyAlertService {
     };
 
     final event = OutboxEvent(
-      id: null, // autoincrement
       statusCode: severity,
       createdAt: DateTime.now(),
-      lastAttemptAt: null,
       status: "queued",
       retryCount: 0,
-
       type: "emergency",
       parentEventId: null,
-
       content: {
         "alert_type": type,
         "timestamp": DateTime.now().toIso8601String(),
       },
-
-      emergencyCategory: null, // user fills this later in Supabase only
-
-      lat: 0.0, // required double
-      lng: 0.0, // required double
+      emergencyCategory: null,
+      lat: 0.0,
+      lng: 0.0,
       address: null,
-
       userId: appState.anonymousId,
     );
 
     await repo.queueEvent(event);
+
+    print("Offline emergency queued via mesh relay");
   }
 }
-
-

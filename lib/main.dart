@@ -2,31 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// App State + Initialization
+// Core init
 import 'core/app_initializer.dart';
 
-// SQLite + Repositories + Models
+// Inbox + BLE
 import 'core/database/repositories/inbox_repository.dart';
-import 'core/database/repositories/outbox_repository.dart';
-import 'package:safesignal/core/database/models/outbox_event.dart';
-
-// Services
-import 'package:safesignal/core/services/outbox_service.dart';
 import 'package:safesignal/core/services/ble_scan_service.dart';
 
-// Screens
+// Providers
+import 'state/app_providers.dart';
+
+// Core screens only
 import 'screens/home_screen.dart';
-import 'screens/mesh_graph_screen.dart';
-import 'screens/mesh_analytics_screen.dart';
-import 'screens/mesh_map_screen.dart';
 import 'screens/emergency_countdown_screen.dart';
 import 'screens/emergency_details_screen.dart';
-import 'screens/propagation_timeline_screen.dart';
+
+import 'package:safesignal/core/database/models/outbox_event.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  print(">>> MAIN.DART LOADED FROM: C:\\safesignal\\lib\\main.dart <<<");
 
   await Supabase.initialize(
     url: 'https://vpcqpfrrcicydpnjmgeb.supabase.co',
@@ -35,8 +29,6 @@ Future<void> main() async {
 
   runApp(const ProviderScope(child: SafeSignalApp()));
 }
-
-final supabase = Supabase.instance.client;
 
 class SafeSignalApp extends ConsumerStatefulWidget {
   const SafeSignalApp({super.key});
@@ -55,32 +47,30 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
   }
 
   Future<void> _init() async {
-    final initializer = AppInitializer(ref);
-    await initializer.initialize();
+    try {
+      // 1. Bootstrap identity + app state
+      final initializer = AppInitializer(ref);
+      await initializer.initialize();
 
-    final outboxRepo = await ref.read(outboxRepositoryProvider.future);
-    final outboxService = OutboxService(outboxRepo);
-    outboxService.startRetryLoop();
+      // 2. BLE scanning (core system)
+      final inboxRepo = await ref.read(inboxRepositoryProvider.future);
+      final ble = BleScanService(inboxRepo);
+      await ble.startScanning();
 
-    final inboxRepo = await ref.read(inboxRepositoryProvider.future);
-    final bleScanService = BleScanService(inboxRepo);
-    await bleScanService.startScanning();
-
-    setState(() => _initialized = true);
+      setState(() => _initialized = true);
+    } catch (e) {
+      debugPrint("INIT ERROR: $e");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    print("MAIN.DART ACTIVE VERSION: FULL ROUTING ENABLED");
-
     return MaterialApp(
       title: 'SafeSignal',
       theme: ThemeData.dark(),
-
       initialRoute: '/',
-      onGenerateRoute: (settings) {
-        print("ROUTE CALL: name=${settings.name}, args=${settings.arguments}");
 
+      onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/':
             return MaterialPageRoute(builder: (_) => const HomeScreen());
@@ -88,22 +78,23 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
           case '/countdown':
             final alertType = settings.arguments as String;
             return MaterialPageRoute(
-              builder: (_) => EmergencyCountdownScreen(alertType: alertType),
+              builder: (_) => EmergencyCountdownScreen(
+                alertType: alertType,
+              ),
             );
 
-          case '/mesh_graph':
-            return MaterialPageRoute(builder: (_) => const MeshGraphScreen());
+          case '/details':
+            final alertId = settings.arguments;
 
-          case '/mesh_analytics':
-            return MaterialPageRoute(builder: (_) => const MeshAnalyticsScreen());
+            // HARD FIX: normalize type
+            final int parsedAlertId = alertId is int
+                ? alertId
+                : int.tryParse(alertId.toString()) ?? -1;
 
-          case '/mesh_map':
-            return MaterialPageRoute(builder: (_) => const MeshMapScreen());
-
-          case '/timeline':
-            final chain = settings.arguments as List<OutboxEvent>;
             return MaterialPageRoute(
-              builder: (_) => PropagationTimelineScreen(chain: chain),
+              builder: (_) => EmergencyDetailsScreen(
+                alertId: parsedAlertId,
+              ),
             );
 
           default:
