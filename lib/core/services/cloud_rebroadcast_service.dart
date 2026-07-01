@@ -42,6 +42,10 @@ class CloudRebroadcastService {
       // ------------------------------------------------------------
       // ⭐ Build Hop N+1
       // ------------------------------------------------------------
+
+      // ⭐ FIX: Prevent null crash when cloudEvent.content is null
+      final baseContent = cloudEvent.content ?? {};
+
       final newEvent = OutboxEvent(
         statusCode: cloudEvent.statusCode,
         createdAt: DateTime.now(),
@@ -50,7 +54,7 @@ class CloudRebroadcastService {
         type: 'relay',
         parentEventId: cloudEvent.parentEventId,
         content: {
-          ...cloudEvent.content!,
+          ...baseContent,
           'hop': hop + 1,
           'source': 'cloud-rebroadcast',
         },
@@ -71,4 +75,3 @@ class CloudRebroadcastService {
     }
   }
 }
-

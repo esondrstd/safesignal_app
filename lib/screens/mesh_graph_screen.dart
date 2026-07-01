@@ -111,8 +111,11 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
 
     for (final e in events) {
       final hop = (e.content?['hop'] ?? 1) as int;
-      map.putIfAbsent(hop, () => []);
-      map[hop]!.add(e);
+
+      // ⭐ FIX: ensure list exists
+      final list = map[hop] ?? [];
+      list.add(e);
+      map[hop] = list;
     }
 
     return map;
@@ -127,7 +130,8 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: hops.map((hop) {
-        final events = graph[hop]!;
+        // ⭐ FIX: safe fallback
+        final events = graph[hop] ?? [];
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -330,5 +334,3 @@ class _MeshGraphScreenState extends ConsumerState<MeshGraphScreen> {
     return const TextStyle(color: Colors.white70, fontSize: 13);
   }
 }
-
-

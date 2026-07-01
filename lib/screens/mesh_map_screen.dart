@@ -27,7 +27,7 @@ class _MeshMapScreenState extends ConsumerState<MeshMapScreen> {
     final all = await repo.getAllRelayEvents(limit: 1000);
 
     setState(() {
-      events = all.where((e) => e.lat != null && e.lng != null).toList();
+      events = all.toList();
     });
   }
 
@@ -42,7 +42,7 @@ class _MeshMapScreenState extends ConsumerState<MeshMapScreen> {
 
     final markers = events.map((e) {
       return Marker(
-        point: LatLng(e.lat!, e.lng!),
+        point: LatLng(e.lat, e.lng),
         width: 18,
         height: 18,
         child: const Icon(
@@ -57,7 +57,7 @@ class _MeshMapScreenState extends ConsumerState<MeshMapScreen> {
       appBar: AppBar(title: const Text("Mesh Map")),
       body: FlutterMap(
         options: MapOptions(
-          initialCenter: LatLng(events.first.lat!, events.first.lng!),
+          initialCenter: LatLng(events.first.lat, events.first.lng),
           initialZoom: 14,
         ),
         children: [

@@ -17,6 +17,7 @@ class OutboxEvent {
   // emergency, relay, status
   final String? type;
 
+  // Hop-chain parent (NOT used for emergency metadata)
   final int? parentEventId;
 
   // JSON payload for mesh relay logic (stored in TEXT "content")
@@ -104,7 +105,7 @@ class OutboxEvent {
   }
 
   factory OutboxEvent.fromMap(Map<String, Object?> map) {
-    return OutboxEvent(
+    final e = OutboxEvent(
       id: map['id'] as int?,
       statusCode: map['status_code'] as int,
       createdAt: DateTime.parse(map['created_at'] as String),
@@ -116,15 +117,14 @@ class OutboxEvent {
       type: map['type'] as String?,
       parentEventId: map['parent_event_id'] as int?,
 
-      // ⭐ FIXED: supports both String and Map
       content: (() {
         final raw = map['content'];
         if (raw == null) return null;
 
-        // Already decoded (Map)
-        if (raw is Map<String, dynamic>) return raw;
+        if (raw is Map) {
+          return Map<String, dynamic>.from(raw);
+        }
 
-        // Stored as JSON string
         if (raw is String) {
           try {
             return jsonDecode(raw) as Map<String, dynamic>;
@@ -133,15 +133,32 @@ class OutboxEvent {
           }
         }
 
-        // Unexpected type
         return null;
       })(),
 
       lat: (map['lat'] as num).toDouble(),
       lng: (map['lng'] as num).toDouble(),
       address: map['address'] as String?,
-      userId: map['user_id'] as String,
+      userId: map['user_id'] as String? ?? '',
       emergencyCategory: map['emergency_category'] as String?,
     );
+
+    // ⭐ Tripwire: catch nulls at the exact moment they enter the system
+    debugTripwire(e, source: "fromMap");
+
+    return e;
   }
 }
+
+void debugTripwire(OutboxEvent e, {String? source}) {
+  final prefix = source != null ? "[$source]" : "[OutboxEvent]";
+
+  if (e.id == null) print("$prefix id is NULL");
+  if (e.userId.isEmpty) print("$prefix userId is EMPTY");
+  if (e.lat.isNaN) print("$prefix lat is NaN");
+  if (e.lng.isNaN) print("$prefix lng is NaN");
+  if (e.content == null) print("$prefix content is NULL");
+  if (e.content?['hop'] == null) print("$prefix hop is NULL");
+  if (e.content?['ephemeralId'] == null) print("$prefix ephId is NULL");
+}
+

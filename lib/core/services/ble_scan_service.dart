@@ -27,7 +27,6 @@ class BleScanService {
       continuousUpdates: true,
     );
 
-
     _scanSub = FlutterBluePlus.scanResults.listen((results) async {
       for (final r in results) {
         final device = r.device;
@@ -36,13 +35,14 @@ class BleScanService {
         // TODO: replace with real ephemeral ID from advertisement payload
         final ephemeralId = device.id.id; // placeholder
 
+        // ⭐ FIX: Always provide fallback lat/lng so OutboxEvent never receives null
         final event = InboxEvent(
           ephemeralId: ephemeralId,
           statusCode: 1,
           rssi: rssi,
           detectedAt: DateTime.now(),
-          receiverLat: null,
-          receiverLng: null,
+          receiverLat: 29.7604,   // Houston fallback
+          receiverLng: -95.3698,  // Houston fallback
         );
 
         final id = await inboxRepository.addInboxEvent(event);

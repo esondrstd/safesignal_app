@@ -60,6 +60,12 @@ class OutboxService {
   // PROCESS ONE EVENT (DELIVERY + SUPABASE SYNC)
   // ------------------------------------------------------------
   Future<void> _processSingleEvent(OutboxEvent event) async {
+    // ⭐ FIX: Prevent null id crash
+    if (event.id == null) {
+      print("OutboxService: event has null id, skipping");
+      return;
+    }
+
     // Skip if offline
     final online = await _isOnline();
     if (!online) {
@@ -74,7 +80,6 @@ class OutboxService {
       // ------------------------------------------------------------
       // 1. DELIVER EVENT (BLE / HTTP / etc.)
       // ------------------------------------------------------------
-      // In production, replace this with real delivery logic.
       await Future.delayed(const Duration(milliseconds: 200));
 
       // Mark delivered locally
@@ -105,8 +110,11 @@ class OutboxService {
   // ------------------------------------------------------------
   Future<void> _syncToSupabase(OutboxEvent e) async {
     try {
+      // ⭐ FIX: Prevent null/empty userId crash
+      final safeUserId = (e.userId.isNotEmpty) ? e.userId : "unknown";
+
       final payload = {
-        'user_id': e.userId,
+        'user_id': safeUserId,
         'parent_event_id': e.parentEventId,
         'hop': e.content?['hop'] ?? 1,
         'ephemeral_id': e.content?['ephemeralId'] ?? 'unknown',
@@ -122,7 +130,6 @@ class OutboxService {
       print('Supabase: synced mesh_event for outbox_event id=${e.id}');
     } catch (err) {
       print('Supabase sync error for outbox_event id=${e.id}: $err');
-      // Optional: add sync_failed flag in DB if needed
     }
   }
 
@@ -145,8 +152,10 @@ class OutboxService {
     if (event.lastAttemptAt == null) return true;
 
     final backoffSeconds = 2 * (event.retryCount + 1);
-    final nextAllowed =
-        event.lastAttemptAt!.add(Duration(seconds: backoffSeconds));
+
+    // ⭐ FIX: Prevent null lastAttemptAt crash
+    final last = event.lastAttemptAt ?? event.createdAt;
+    final nextAllowed = last.add(Duration(seconds: backoffSeconds));
 
     return DateTime.now().isAfter(nextAllowed);
   }
@@ -163,10 +172,3 @@ final outboxServiceProvider = Provider<OutboxService>((ref) {
     orElse: () => throw Exception('OutboxRepository not ready yet'),
   );
 });
-
-
-
-
-
-
-

@@ -3,7 +3,6 @@
 import 'package:safesignal/core/database/repositories/inbox_repository.dart';
 import 'package:safesignal/core/services/outbox_service.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
-import 'package:safesignal/core/database/models/inbox_event.dart';
 
 class MeshIngestionService {
   final InboxRepository inboxRepository;

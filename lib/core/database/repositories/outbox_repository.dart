@@ -142,7 +142,7 @@ class OutboxRepository {
       'outbox_events',
       {
         'status': 'failed',
-        if (statusCode != null) 'status_code': statusCode,
+        'status_code': ?statusCode,
         'last_attempt_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
