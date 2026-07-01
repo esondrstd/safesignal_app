@@ -24,6 +24,8 @@ import 'screens/propagation_timeline_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  print(">>> MAIN.DART LOADED FROM: C:\\safesignal\\lib\\main.dart <<<");
+
   await Supabase.initialize(
     url: 'https://vpcqpfrrcicydpnjmgeb.supabase.co',
     publishableKey: 'sb_publishable_D2-ROQYpebR4NynUHLKEFg_0nYtrdd0',
@@ -67,19 +69,16 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_initialized) {
-      return const MaterialApp(
-        home: Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
+    print("MAIN.DART ACTIVE VERSION: FULL ROUTING ENABLED");
 
     return MaterialApp(
       title: 'SafeSignal',
       theme: ThemeData.dark(),
+
       initialRoute: '/',
       onGenerateRoute: (settings) {
+        print("ROUTE CALL: name=${settings.name}, args=${settings.arguments}");
+
         switch (settings.name) {
           case '/':
             return MaterialPageRoute(builder: (_) => const HomeScreen());
@@ -94,9 +93,7 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
             return MaterialPageRoute(builder: (_) => const MeshMapScreen());
 
           case '/timeline':
-            final args = settings.arguments;
-            final chain = (args is List<OutboxEvent>) ? args : <OutboxEvent>[];
-
+            final chain = settings.arguments as List<OutboxEvent>;
             return MaterialPageRoute(
               builder: (_) => PropagationTimelineScreen(chain: chain),
             );
@@ -104,12 +101,17 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
           default:
             return MaterialPageRoute(
               builder: (_) => const Scaffold(
-                body: Center(child: Text("Unknown route")),
+                body: Center(child: Text("Unknown Route")),
               ),
             );
         }
       },
+
+      home: _initialized
+          ? const HomeScreen()
+          : const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
     );
   }
 }
-
