@@ -4,10 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:safesignal/core/app/app_initializer.dart';
 import 'package:safesignal/services/storage/secure_storage_service.dart';
 
-import 'package:safesignal/core/database/repositories/inbox_repository.dart';
-import 'package:safesignal/core/database/repositories/outbox_repository.dart';
-import 'package:safesignal/core/services/outbox_service.dart';
+import 'package:safesignal/state/app_providers.dart';
 import 'package:safesignal/core/services/ble_scan_service.dart';
+import 'package:safesignal/core/services/outbox_service.dart';
 
 import 'shared/screens/home_screen.dart';
 
@@ -33,15 +32,22 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
   }
 
   Future<void> _init() async {
+    // 1. Initialize app identity + Supabase
     final secureStorage = SecureStorageService();
-
     final initializer = AppInitializer(ref, secureStorage);
     await initializer.initialize();
 
-    final outboxRepo = await ref.read(outboxRepositoryProvider.future);
-    final outboxService = OutboxService(outboxRepo, ref);
+    // 2. Start connectivity watcher
+    final watcher = ref.read(connectivityWatcherProvider);
+    watcher.start();
+
+    // 3. Start OutboxService retry loop
+    final outboxService =
+    await ref.read(outboxServiceProvider.future);
+
     outboxService.startRetryLoop();
 
+    // 4. Start BLE scanning
     final inboxRepo = await ref.read(inboxRepositoryProvider.future);
     final bleScanService = BleScanService(inboxRepo);
     await bleScanService.startScanning();
@@ -59,11 +65,10 @@ class _SafeSignalAppState extends ConsumerState<SafeSignalApp> {
       );
     }
 
-    // IMPORTANT: HomeScreen must NOT be const
     return MaterialApp(
       title: 'SafeSignal',
       theme: ThemeData.dark(),
-      home: HomeScreen(),
+      home: HomeScreen(),   // MUST NOT be const
     );
   }
 }

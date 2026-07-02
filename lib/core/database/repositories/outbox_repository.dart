@@ -90,10 +90,3 @@ class OutboxRepository {
     );
   }
 }
-
-// Riverpod provider
-final outboxRepositoryProvider = FutureProvider<OutboxRepository>((ref) async {
-  final db = await ref.watch(sqliteDatabaseProvider.future);
-  return OutboxRepository(db);
-});
-

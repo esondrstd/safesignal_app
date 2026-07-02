@@ -2,15 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:safesignal/state/app_providers.dart';
-import 'package:safesignal/core/database/repositories/inbox_repository.dart';
-import 'package:safesignal/core/database/repositories/outbox_repository.dart';
 import 'package:safesignal/core/database/models/inbox_event.dart';
 import 'package:safesignal/core/database/models/outbox_event.dart';
 import 'package:safesignal/core/services/outbox_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HomeScreen extends ConsumerWidget {
-  const HomeScreen({super.key}); // ← NOT const
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -139,8 +136,8 @@ class HomeScreen extends ConsumerWidget {
                       print('${e.id} ${e.ephemeralId} ${e.statusCode} ${e.rssi} ${e.detectedAt}');
                     }
 
-                    final outboxService =
-                        OutboxService(await ref.read(outboxRepositoryProvider.future), ref);
+                    // ⭐ FIX: await the FutureProvider
+                    final outboxService = await ref.read(outboxServiceProvider.future);
 
                     final outboxEvent = OutboxEvent(
                       statusCode: 200,
@@ -176,7 +173,8 @@ class HomeScreen extends ConsumerWidget {
               // 5. Test Supabase Write
               ElevatedButton(
                 onPressed: () async {
-                  await Supabase.instance.client.from('test_table').insert({
+                  final client = ref.read(supabaseClientProvider);
+                  await client.from('test_table').insert({
                     'message': 'SafeSignal connected',
                     'created_at': DateTime.now().toIso8601String(),
                   });
@@ -190,8 +188,7 @@ class HomeScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
-                  final outboxRepo = await ref.read(outboxRepositoryProvider.future);
-                  final outboxService = OutboxService(outboxRepo, ref);
+                  final outboxService = await ref.read(outboxServiceProvider.future);
 
                   print("=== FULL SIMULATION START ===");
 
@@ -202,6 +199,7 @@ class HomeScreen extends ConsumerWidget {
                   print("FullSim: Inbox count=${inboxEvents.length}");
 
                   final e = inboxEvents.first;
+
                   final outboxEvent = OutboxEvent(
                     statusCode: 200,
                     createdAt: DateTime.now(),
@@ -220,7 +218,7 @@ class HomeScreen extends ConsumerWidget {
                     userId: 'fullsim-user',
                   );
 
-                  final outboxId = await outboxRepo.queueEvent(outboxEvent);
+                  final outboxId = await outboxService.queueEvent(outboxEvent);
                   print("FullSim: Queued outbox_event id=$outboxId");
 
                   await outboxService.processPendingEvents();
@@ -237,8 +235,7 @@ class HomeScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: () async {
                   final inboxRepo = await ref.read(inboxRepositoryProvider.future);
-                  final outboxRepo = await ref.read(outboxRepositoryProvider.future);
-                  final outboxService = OutboxService(outboxRepo, ref);
+                  final outboxService = await ref.read(outboxServiceProvider.future);
 
                   print("=== MULTI-HOP SIMULATION START ===");
 
@@ -269,7 +266,7 @@ class HomeScreen extends ConsumerWidget {
                       userId: 'hop-sim-user',
                     );
 
-                    final outboxId = await outboxRepo.queueEvent(outboxEvent);
+                    final outboxId = await outboxService.queueEvent(outboxEvent);
                     print("Hop $hop: Queued outbox_event id=$outboxId");
                   }
 
